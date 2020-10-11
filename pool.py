@@ -9,6 +9,10 @@ r = requests.get(url)
 # Convert to a beautiful soup object
 webpage = Bs(r.content, "html.parser")
 
+wk_number = webpage.find("div", attrs={"class": "filters-week-picker"})\
+    .find("div", attrs={"class": "selector week-picker-week"}).find("li", attrs={"class": "menu-item active"})\
+    .find("span", attrs={"data-endpoint": True}).get_text()
+
 # Set Column names
 headers = ["Team 1", "Spread", "Team 2", "Team 1 Abbreviation", "Team 2 Abbreviation", "Home Team"]
 column_names = [c for c in headers]
@@ -23,7 +27,8 @@ for table in webpage.find_all("div", attrs={"class": "event-card"}):
         home_tm = tm1_name
         spread = table.find("td", attrs={"data-field": "current-spread"}).find("span",
                                                                                attrs={
-                                                                                   "class": "data-value"}).get_text().strip()
+                                                                                   "class": "data-value"})\
+            .get_text().strip()
         tm2_name = table.find("tr", attrs={"data-side": "away"}).find("span", attrs={"class": "team-name"}) \
             .find("a").find("span").get_text()
         tm1_abbr_field = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
