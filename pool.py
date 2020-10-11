@@ -1,32 +1,58 @@
 import requests
-from bs4 import BeautifulSoup as bs
-import re
+from bs4 import BeautifulSoup as Bs
+import pandas as pd
 
 # Load the webpage content
-url = "https://www.scoresandodds.com/las-vegas-odds"
+url = "https://www.scoresandodds.com/nfl"
 r = requests.get(url)
 
 # Convert to a beautiful soup object
-webpage = bs(r.content, "html.parser")
+webpage = Bs(r.content, "html.parser")
 
-# Get the table for Column names
-table = webpage.select("table.segmented")[0]
-columns = table.find("td", attrs={"id": "betting-trends--nfl"}).find_all("th", text=re.compile("Line"))
-column_names = [c.string for c in columns]
+# Set Column names
+headers = ["Team 1", "Spread", "Team 2", "Team 1 Abbreviation", "Team 2 Abbreviation"]
+column_names = [c for c in headers]
 
-print(column_names)
+data = []
+for table in webpage.find_all("div", attrs={"class": "event-card"}):
+    find_favorite_tm = table.find("td", attrs={"data-field": "current-spread", "data-side": True})
+    favorite_tm = find_favorite_tm.get("data-side")
+    if favorite_tm == "home":
+        tm1_name = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
+            .find("a").find("span").get_text()
+        spread = table.find("td", attrs={"data-field": "current-spread"}).find("span",
+                                                                               attrs={
+                                                                                   "class": "data-value"}).get_text().strip()
+        tm2_name = table.find("tr", attrs={"data-side": "away"}).find("span", attrs={"class": "team-name"}) \
+            .find("a").find("span").get_text()
+        tm1_abbr_field = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
+            .find("a", attrs={"data-abbr": True})
+        tm1_abbr = tm1_abbr_field.get('data-abbr')
+        tm2_abbr_field = table.find("tr", attrs={"data-side": "away"}).find("span", attrs={"class": "team-name"}) \
+            .find("a", attrs={"data-abbr": True})
+        tm2_abbr = tm2_abbr_field.get("data-abbr")
+        row = [tm1_name.upper(), spread, tm2_name.upper(), tm1_abbr, tm2_abbr]
+        data.append(row)
+    else:
+        tm1_name = table.find("tr", attrs={"data-side": "away"}).find("span", attrs={"class": "team-name"}) \
+            .find("a").find("span").get_text()
+        spread = table.find("td", attrs={"data-field": "current-spread"}).find("span",
+                                                                               attrs={
+                                                                                   "class": "data-value"})
+        grab_away_spread = str(find_favorite_tm.get_text().strip())
+        away_spread_split = grab_away_spread.split(" ")
+        final_away_split = away_spread_split[0]
+        tm2_name = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
+            .find("a").find("span").get_text()
+        tm1_abbr_field = table.find("tr", attrs={"data-side": "away"}).find("span", attrs={"class": "team-name"}) \
+            .find("a", attrs={"data-abbr": True})
+        tm1_abbr = tm1_abbr_field.get('data-abbr')
+        tm2_abbr_field = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
+            .find("a", attrs={"data-abbr": True})
+        tm2_abbr = tm2_abbr_field.get("data-abbr")
+        row = [tm1_name.upper(), final_away_split, tm2_name.upper(), tm1_abbr, tm2_abbr]
+        data.append(row)
 
 
-l = []
-spread_rows = columns = table.find("td", attrs={"id": "betting-trends--nfl"}).find_all("span", text=re.compile("-"))
-spreads = [str(s.get_text()).strip() for s in spread_rows]
-print(spreads)
-
-
-# for tr in table_rows:
-#     td = tr.find_all("td")
-#     row = [str(tr.get_text()).strip() for tr in td]
-#     l.append(row)
-
-# print(table.prettify())
-
+df = pd.DataFrame(data, columns=column_names)
+print(df)
