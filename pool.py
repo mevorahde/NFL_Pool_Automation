@@ -70,20 +70,25 @@ for table in webpage.find_all("div", attrs={"class": "event-card"}):
         row = [tm1_name.upper(), final_away_spread, tm2_name.upper(), tm1_abbr, tm2_abbr, home_tm]
         data.append(row)
 
-df = pd.DataFrame(data, columns=column_names)
-# with pd.option_context('display.max_rows', None, 'display.max_columns', None):  # more options can be specified also
-#     print(df)
-
 file = os.getenv("file_path")
 
+# writer = pd.ExcelWriter(file, engine='xlsxwriter')
 wb = load_workbook(filename=file)
 all_sheets = wb.sheetnames
 
 template = wb.worksheets[0]
 
 if wk_number not in all_sheets:
-    wb.create_sheet("{}".format(wk_number))
     template_copy = wb.copy_worksheet(template)
+    new_wk_sheet = wb['Template Copy']
+    new_wk_sheet.title = wk_number
     wb.save(file)
-
-print(all_sheets)
+    # final_all_sheets = wb.sheetnames
+    # print(final_all_sheets)
+    df = pd.DataFrame(data)
+    # with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+    # print(df)
+    # with pd.ExcelWriter(file, mode='a') as writer:
+    #     print(file)
+    # df.to_excel(writer, sheet_name=wk_number, startrow=2, startcol=3, header=False, index=False)
+    # writer.save()
