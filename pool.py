@@ -69,6 +69,8 @@ favorite_teams = [fav_teams[0] for fav_teams in data]
 spreads_string = [spreads[1] for spreads in data]
 spreads_int = []
 for i in range(0, len(spreads_string)):
+    if spreads_string[i] == '':
+        spreads_string[i] = 0
     spreads_string[i] = spreads_int.append(float(spreads_string[i]))
 underdog_teams = [under_teams[2] for under_teams in data]
 fav_abbr = [fav_team_abbr[3] for fav_team_abbr in data]
@@ -82,6 +84,11 @@ wb = load_workbook(filename=file)
 all_sheets = wb.sheetnames
 template = wb.worksheets[0]
 blue_fill = PatternFill(start_color='00B0F0', end_color='00B0F0', fill_type='solid')
+home_fill = PatternFill(start_color='F4B084', end_color='F4B084', fill_type='solid')
+
+for ft, ut, ht in zip(favorite_teams, underdog_teams, home_team):
+    print(ft, ut, ht)
+
 
 if wk_number not in all_sheets:
     template_copy = wb.copy_worksheet(template)
@@ -89,19 +96,23 @@ if wk_number not in all_sheets:
     new_wk_sheet.title = wk_number
     for r in range(0, num_games - 1):
         new_wk_sheet.cell(row=r + 2, column=3).value = favorite_teams[r]
+        # if ft == ht:
+        #     new_wk_sheet.cell(row=r + 2, column=3).fill = home_fill
         new_wk_sheet.cell(row=r + 2, column=4).value = spreads_int[r]
         new_wk_sheet.cell(row=r + 2, column=5).value = underdog_teams[r]
+        # if ut == ht:
+        #     new_wk_sheet.cell(row=r + 2, column=5).fill = home_fill
         new_wk_sheet.cell(row=r + 2, column=9).value = fav_abbr[r]
         new_wk_sheet.cell(row=r + 2, column=11).value = under_abbr[r]
+    new_wk_sheet.cell(row=num_games-1, column=14).fill = blue_fill
+    new_wk_sheet.cell(row=num_games-1, column=15).fill = blue_fill
+    new_wk_sheet.cell(row=num_games, column=14).fill = blue_fill
+    new_wk_sheet.cell(row=num_games, column=15).fill = blue_fill
+    if wk_number == "Week 1":
+        new_wk_sheet.cell(row=num_games-2, column=14).fill = blue_fill
+        new_wk_sheet.cell(row=num_games-2, column=15).fill = blue_fill
         new_wk_sheet.cell(row=num_games-1, column=14).fill = blue_fill
         new_wk_sheet.cell(row=num_games-1, column=15).fill = blue_fill
         new_wk_sheet.cell(row=num_games, column=14).fill = blue_fill
         new_wk_sheet.cell(row=num_games, column=15).fill = blue_fill
-        if wk_number == "Week 1":
-            new_wk_sheet.cell(row=num_games-2, column=14).fill = blue_fill
-            new_wk_sheet.cell(row=num_games-2, column=15).fill = blue_fill
-            new_wk_sheet.cell(row=num_games-1, column=14).fill = blue_fill
-            new_wk_sheet.cell(row=num_games-1, column=15).fill = blue_fill
-            new_wk_sheet.cell(row=num_games, column=14).fill = blue_fill
-            new_wk_sheet.cell(row=num_games, column=15).fill = blue_fill
     wb.save(file)
