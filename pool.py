@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup as Bs
 from openpyxl import load_workbook
+from openpyxl.styles import PatternFill
 import os
 from dotenv import load_dotenv
 from pathlib import Path
@@ -80,6 +81,7 @@ file = os.getenv("file_path")
 wb = load_workbook(filename=file)
 all_sheets = wb.sheetnames
 template = wb.worksheets[0]
+blue_fill = PatternFill(start_color='00B0F0', end_color='00B0F0', fill_type='solid')
 
 if wk_number not in all_sheets:
     template_copy = wb.copy_worksheet(template)
@@ -91,4 +93,15 @@ if wk_number not in all_sheets:
         new_wk_sheet.cell(row=r + 2, column=5).value = underdog_teams[r]
         new_wk_sheet.cell(row=r + 2, column=9).value = fav_abbr[r]
         new_wk_sheet.cell(row=r + 2, column=11).value = under_abbr[r]
+        new_wk_sheet.cell(row=num_games-1, column=14).fill = blue_fill
+        new_wk_sheet.cell(row=num_games-1, column=15).fill = blue_fill
+        new_wk_sheet.cell(row=num_games, column=14).fill = blue_fill
+        new_wk_sheet.cell(row=num_games, column=15).fill = blue_fill
+        if wk_number == "Week 1":
+            new_wk_sheet.cell(row=num_games-2, column=14).fill = blue_fill
+            new_wk_sheet.cell(row=num_games-2, column=15).fill = blue_fill
+            new_wk_sheet.cell(row=num_games-1, column=14).fill = blue_fill
+            new_wk_sheet.cell(row=num_games-1, column=15).fill = blue_fill
+            new_wk_sheet.cell(row=num_games, column=14).fill = blue_fill
+            new_wk_sheet.cell(row=num_games, column=15).fill = blue_fill
     wb.save(file)
