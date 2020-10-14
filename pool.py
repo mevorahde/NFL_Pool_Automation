@@ -23,10 +23,6 @@ wk_number = webpage.find("div", attrs={"class": "filters-week-picker"}) \
     .find("div", attrs={"class": "selector week-picker-week"}).find("li", attrs={"class": "menu-item active"}) \
     .find("span", attrs={"data-endpoint": True}).get_text()
 
-# Set Column names
-headers = ["Team 1", "Spread", "Team 2", "Team 1 Abbreviation", "Team 2 Abbreviation", "Home Team"]
-column_names = [c for c in headers]
-
 data = []
 for table in webpage.find_all("div", attrs={"class": "event-card"}):
     find_favorite_tm = table.find("td", attrs={"data-field": "current-spread", "data-side": True})
@@ -35,10 +31,8 @@ for table in webpage.find_all("div", attrs={"class": "event-card"}):
         tm1_name = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
             .find("a").find("span").get_text()
         home_tm = tm1_name
-        spread = table.find("td", attrs={"data-field": "current-spread"}).find("span",
-                                                                               attrs={
-                                                                                   "class": "data-value"}) \
-            .get_text().strip()
+        spread = table.find("td", attrs={"data-field": "current-spread"})\
+            .find("span",attrs={"class": "data-value"}).get_text().strip().replace("-", "")
         tm2_name = table.find("tr", attrs={"data-side": "away"}).find("span", attrs={"class": "team-name"}) \
             .find("a").find("span").get_text()
         tm1_abbr_field = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
@@ -57,7 +51,7 @@ for table in webpage.find_all("div", attrs={"class": "event-card"}):
                                                                                    "class": "data-value"})
         grab_away_spread = str(find_favorite_tm.get_text().strip())
         away_spread_split = grab_away_spread.split(" ")
-        final_away_spread = away_spread_split[0]
+        final_away_spread = away_spread_split[0].replace("-", "")
         tm2_name = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
             .find("a").find("span").get_text()
         home_tm = tm2_name
@@ -70,25 +64,34 @@ for table in webpage.find_all("div", attrs={"class": "event-card"}):
         row = [tm1_name.upper(), final_away_spread, tm2_name.upper(), tm1_abbr, tm2_abbr, home_tm]
         data.append(row)
 
-file = os.getenv("file_path")
 
-# writer = pd.ExcelWriter(file, engine='xlsxwriter')
+# Column Data
+favorite_teams = [fav_teams[0] for fav_teams in data]
+spreads_string = [spreads[1] for spreads in data]
+spreads_int = []
+for i in range(0, len(spreads_string)):
+    spreads_string[i] = spreads_int.append(float(spreads_string[i]))
+underdog_teams = [under_teams[2] for under_teams in data]
+fav_abbr = [fav_team_abbr[3] for fav_team_abbr in data]
+under_abbr = [under_team_abbr[4] for under_team_abbr in data]
+num_games = len(favorite_teams)
+home_team = [home_team[5] for home_team in data]
+
+
+# Excel Info and processes
+file = os.getenv("file_path")
 wb = load_workbook(filename=file)
 all_sheets = wb.sheetnames
-
 template = wb.worksheets[0]
 
 if wk_number not in all_sheets:
     template_copy = wb.copy_worksheet(template)
     new_wk_sheet = wb['Template Copy']
     new_wk_sheet.title = wk_number
+    for r in range(0, num_games-1):
+        new_wk_sheet.cell(row=r + 2, column=3).value = favorite_teams[r]
+        new_wk_sheet.cell(row=r + 2, column=4).value = spreads_int[r]
+        new_wk_sheet.cell(row=r + 2, column=5).value = underdog_teams[r]
+        new_wk_sheet.cell(row=r + 2, column=9).value = fav_abbr[r]
+        new_wk_sheet.cell(row=r + 2, column=11).value = under_abbr[r]
     wb.save(file)
-    # final_all_sheets = wb.sheetnames
-    # print(final_all_sheets)
-    df = pd.DataFrame(data)
-    # with pd.option_context('display.max_rows', None, 'display.max_columns', None):
-    # print(df)
-    # with pd.ExcelWriter(file, mode='a') as writer:
-    #     print(file)
-    # df.to_excel(writer, sheet_name=wk_number, startrow=2, startcol=3, header=False, index=False)
-    # writer.save()
