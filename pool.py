@@ -30,7 +30,7 @@ for table in webpage.find_all("div", attrs={"class": "event-card"}):
     if favorite_tm == "home":
         tm1_name = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
             .find("a").find("span").get_text()
-        home_tm = tm1_name
+        home_tm = tm1_name.upper()
         spread = table.find("td", attrs={"data-field": "current-spread"}) \
             .find("span", attrs={"class": "data-value"}).get_text().strip().replace("-", "")
         tm2_name = table.find("tr", attrs={"data-side": "away"}).find("span", attrs={"class": "team-name"}) \
@@ -54,7 +54,7 @@ for table in webpage.find_all("div", attrs={"class": "event-card"}):
         final_away_spread = away_spread_split[0].replace("-", "")
         tm2_name = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
             .find("a").find("span").get_text()
-        home_tm = tm2_name
+        home_tm = tm2_name.upper()
         tm1_abbr_field = table.find("tr", attrs={"data-side": "away"}).find("span", attrs={"class": "team-name"}) \
             .find("a", attrs={"data-abbr": True})
         tm1_abbr = tm1_abbr_field.get('data-abbr')
@@ -86,22 +86,20 @@ template = wb.worksheets[0]
 blue_fill = PatternFill(start_color='00B0F0', end_color='00B0F0', fill_type='solid')
 home_fill = PatternFill(start_color='F4B084', end_color='F4B084', fill_type='solid')
 
-for ft, ut, ht in zip(favorite_teams, underdog_teams, home_team):
-    print(ft, ut, ht)
-
-
 if wk_number not in all_sheets:
     template_copy = wb.copy_worksheet(template)
     new_wk_sheet = wb['Template Copy']
     new_wk_sheet.title = wk_number
+
     for r in range(0, num_games - 1):
+        ht = home_team[r]
         new_wk_sheet.cell(row=r + 2, column=3).value = favorite_teams[r]
-        # if ft == ht:
-        #     new_wk_sheet.cell(row=r + 2, column=3).fill = home_fill
+        if favorite_teams[r] == ht:
+            new_wk_sheet.cell(row=r + 2, column=3).fill = home_fill
         new_wk_sheet.cell(row=r + 2, column=4).value = spreads_int[r]
         new_wk_sheet.cell(row=r + 2, column=5).value = underdog_teams[r]
-        # if ut == ht:
-        #     new_wk_sheet.cell(row=r + 2, column=5).fill = home_fill
+        if underdog_teams[r] == ht:
+            new_wk_sheet.cell(row=r + 2, column=5).fill = home_fill
         new_wk_sheet.cell(row=r + 2, column=9).value = fav_abbr[r]
         new_wk_sheet.cell(row=r + 2, column=11).value = under_abbr[r]
     new_wk_sheet.cell(row=num_games-1, column=14).fill = blue_fill
