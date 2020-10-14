@@ -1,6 +1,5 @@
 import requests
 from bs4 import BeautifulSoup as Bs
-import pandas as pd
 from openpyxl import load_workbook
 import os
 from dotenv import load_dotenv
@@ -31,8 +30,8 @@ for table in webpage.find_all("div", attrs={"class": "event-card"}):
         tm1_name = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
             .find("a").find("span").get_text()
         home_tm = tm1_name
-        spread = table.find("td", attrs={"data-field": "current-spread"})\
-            .find("span",attrs={"class": "data-value"}).get_text().strip().replace("-", "")
+        spread = table.find("td", attrs={"data-field": "current-spread"}) \
+            .find("span", attrs={"class": "data-value"}).get_text().strip().replace("-", "")
         tm2_name = table.find("tr", attrs={"data-side": "away"}).find("span", attrs={"class": "team-name"}) \
             .find("a").find("span").get_text()
         tm1_abbr_field = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
@@ -64,7 +63,6 @@ for table in webpage.find_all("div", attrs={"class": "event-card"}):
         row = [tm1_name.upper(), final_away_spread, tm2_name.upper(), tm1_abbr, tm2_abbr, home_tm]
         data.append(row)
 
-
 # Column Data
 favorite_teams = [fav_teams[0] for fav_teams in data]
 spreads_string = [spreads[1] for spreads in data]
@@ -77,7 +75,6 @@ under_abbr = [under_team_abbr[4] for under_team_abbr in data]
 num_games = len(favorite_teams)
 home_team = [home_team[5] for home_team in data]
 
-
 # Excel Info and processes
 file = os.getenv("file_path")
 wb = load_workbook(filename=file)
@@ -88,7 +85,7 @@ if wk_number not in all_sheets:
     template_copy = wb.copy_worksheet(template)
     new_wk_sheet = wb['Template Copy']
     new_wk_sheet.title = wk_number
-    for r in range(0, num_games-1):
+    for r in range(0, num_games - 1):
         new_wk_sheet.cell(row=r + 2, column=3).value = favorite_teams[r]
         new_wk_sheet.cell(row=r + 2, column=4).value = spreads_int[r]
         new_wk_sheet.cell(row=r + 2, column=5).value = underdog_teams[r]
