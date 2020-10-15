@@ -1,3 +1,5 @@
+import datetime
+
 import requests
 from bs4 import BeautifulSoup as Bs
 from openpyxl import load_workbook
@@ -41,7 +43,9 @@ for table in webpage.find_all("div", attrs={"class": "event-card"}):
         tm2_abbr_field = table.find("tr", attrs={"data-side": "away"}).find("span", attrs={"class": "team-name"}) \
             .find("a", attrs={"data-abbr": True})
         tm2_abbr = tm2_abbr_field.get("data-abbr")
-        row = [tm1_name.upper(), spread, tm2_name.upper(), tm1_abbr, tm2_abbr, home_tm]
+        date_time_value = table.find("span", attrs={"data-value": True}).attrs
+        date_time_UTC = date_time_value['data-value']
+        row = [tm1_name.upper(), spread, tm2_name.upper(), tm1_abbr, tm2_abbr, home_tm, date_time_UTC]
         data.append(row)
     else:
         tm1_name = table.find("tr", attrs={"data-side": "away"}).find("span", attrs={"class": "team-name"}) \
@@ -61,8 +65,11 @@ for table in webpage.find_all("div", attrs={"class": "event-card"}):
         tm2_abbr_field = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
             .find("a", attrs={"data-abbr": True})
         tm2_abbr = tm2_abbr_field.get("data-abbr")
-        row = [tm1_name.upper(), final_away_spread, tm2_name.upper(), tm1_abbr, tm2_abbr, home_tm]
+        date_time_value = table.find("span", attrs={"data-value": True}).attrs
+        date_time_UTC = date_time_value['data-value']
+        row = [tm1_name.upper(), final_away_spread, tm2_name.upper(), tm1_abbr, tm2_abbr, home_tm, date_time_UTC]
         data.append(row)
+
 
 # Column Data
 favorite_teams = [fav_teams[0] for fav_teams in data]
@@ -77,6 +84,27 @@ fav_abbr = [fav_team_abbr[3] for fav_team_abbr in data]
 under_abbr = [under_team_abbr[4] for under_team_abbr in data]
 num_games = len(favorite_teams)
 home_team = [home_team[5] for home_team in data]
+date_time = [date_and_time[6] for date_and_time in data]
+
+
+dotw = []
+for i in date_time:
+    utc_time_remove_t = i.replace("T", " ")
+    split_utc_date_from_time = utc_time_remove_t.split(" ")
+    dt = split_utc_date_from_time[0]
+    year, month, day = (x for x in dt.split('-'))
+    year = int(year)
+    month = int(month)
+    day = int(day)
+    dow = datetime.date(year, month, day).weekday()
+    dotw.append(dow)
+    time = split_utc_date_from_time[1]
+
+# 00:20:00Z PST/UTC - Sunday Night
+# 00:15:00Z PST/UTC - Monday Night
+# Sunday Night games will show as '0' as the day of the week.
+# Monday Night games will show as a '1' as the day of the week.
+# For any other Tues night games (mainly in 2020 for COVID), will show as a '2' as the day of the week.
 
 # Excel Info and processes
 file = os.getenv("file_path")
@@ -91,8 +119,9 @@ if wk_number not in all_sheets:
     new_wk_sheet = wb['Template Copy']
     new_wk_sheet.title = wk_number
 
-    for r in range(0, num_games - 1):
+    for r in range(0, num_games):
         ht = home_team[r]
+        day_of_the_week = dotw[r]
         new_wk_sheet.cell(row=r + 2, column=3).value = favorite_teams[r]
         if favorite_teams[r] == ht:
             new_wk_sheet.cell(row=r + 2, column=3).fill = home_fill
@@ -102,15 +131,9 @@ if wk_number not in all_sheets:
             new_wk_sheet.cell(row=r + 2, column=5).fill = home_fill
         new_wk_sheet.cell(row=r + 2, column=9).value = fav_abbr[r]
         new_wk_sheet.cell(row=r + 2, column=11).value = under_abbr[r]
-    new_wk_sheet.cell(row=num_games-1, column=14).fill = blue_fill
-    new_wk_sheet.cell(row=num_games-1, column=15).fill = blue_fill
-    new_wk_sheet.cell(row=num_games, column=14).fill = blue_fill
-    new_wk_sheet.cell(row=num_games, column=15).fill = blue_fill
-    if wk_number == "Week 1":
-        new_wk_sheet.cell(row=num_games-2, column=14).fill = blue_fill
-        new_wk_sheet.cell(row=num_games-2, column=15).fill = blue_fill
-        new_wk_sheet.cell(row=num_games-1, column=14).fill = blue_fill
-        new_wk_sheet.cell(row=num_games-1, column=15).fill = blue_fill
-        new_wk_sheet.cell(row=num_games, column=14).fill = blue_fill
-        new_wk_sheet.cell(row=num_games, column=15).fill = blue_fill
+        if day_of_the_week < 3:
+            new_wk_sheet.cell(row=r + 2, column=14).fill = blue_fill
+            new_wk_sheet.cell(row=r + 2, column=15).fill = blue_fill
+            new_wk_sheet.cell(row=r + 2, column=14).fill = blue_fill
+            new_wk_sheet.cell(row=r + 2, column=15).fill = blue_fill
     wb.save(file)
