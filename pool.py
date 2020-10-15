@@ -1,5 +1,4 @@
 import datetime
-
 import requests
 from bs4 import BeautifulSoup as Bs
 from openpyxl import load_workbook
@@ -92,10 +91,7 @@ for i in date_time:
     utc_time_remove_t = i.replace("T", " ")
     split_utc_date_from_time = utc_time_remove_t.split(" ")
     dt = split_utc_date_from_time[0]
-    year, month, day = (x for x in dt.split('-'))
-    year = int(year)
-    month = int(month)
-    day = int(day)
+    year, month, day = (int(x) for x in dt.split('-'))
     dow = datetime.date(year, month, day).weekday()
     dotw.append(dow)
     time = split_utc_date_from_time[1]
