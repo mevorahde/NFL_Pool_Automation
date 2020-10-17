@@ -69,7 +69,6 @@ for table in webpage.find_all("div", attrs={"class": "event-card"}):
         row = [tm1_name.upper(), final_away_spread, tm2_name.upper(), tm1_abbr, tm2_abbr, home_tm, date_time_UTC]
         data.append(row)
 
-
 # Column Data
 favorite_teams = [fav_teams[0] for fav_teams in data]
 spreads_string = [spreads[1] for spreads in data]
@@ -85,7 +84,6 @@ num_games = len(favorite_teams)
 home_team = [home_team[5] for home_team in data]
 date_time = [date_and_time[6] for date_and_time in data]
 
-
 dotw = []
 for i in date_time:
     utc_time_remove_t = i.replace("T", " ")
@@ -95,6 +93,9 @@ for i in date_time:
     dow = datetime.date(year, month, day).weekday()
     dotw.append(dow)
     time = split_utc_date_from_time[1]
+num_games_a_t = [num_games_a_t for num_games_a_t in dotw if num_games_a_t != 4]
+num_games_after_thur = len(num_games_a_t)
+difference_num_of_games = num_games - num_games_after_thur
 
 # 00:20:00Z PST/UTC - Sunday Night
 # 00:15:00Z PST/UTC - Monday Night
@@ -109,11 +110,19 @@ all_sheets = wb.sheetnames
 template = wb.worksheets[0]
 blue_fill = PatternFill(start_color='00B0F0', end_color='00B0F0', fill_type='solid')
 home_fill = PatternFill(start_color='F4B084', end_color='F4B084', fill_type='solid')
+clear_fill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
 
 if wk_number not in all_sheets:
     template_copy = wb.copy_worksheet(template)
     new_wk_sheet = wb['Template Copy']
     new_wk_sheet.title = wk_number
+    wk_sheet = wb[wk_number]
+
+    # for s in range(len(wb.sheetnames)):
+    #     if wb.sheetnames[s] == wk_number:
+    #         break
+    #
+    # wb.active = s
 
     for r in range(0, num_games):
         ht = home_team[r]
@@ -132,4 +141,60 @@ if wk_number not in all_sheets:
             new_wk_sheet.cell(row=r + 2, column=15).fill = blue_fill
             new_wk_sheet.cell(row=r + 2, column=14).fill = blue_fill
             new_wk_sheet.cell(row=r + 2, column=15).fill = blue_fill
+    wb.save(file)
+else:
+    wk_sheet = wb[wk_number]
+    # for s in range(len(wb.sheetnames)):
+    #     if wb.sheetnames[s] == wk_number:
+    #         break
+    #
+    # wb.active = s
+    cells = wk_sheet['C2': 'E{}'.format(num_games + 1)]
+
+    # Compare Website data to existing spreadsheet data
+    website_values = []
+    cell_values = []
+    final_values = []
+    for r in range(difference_num_of_games, num_games_after_thur):
+        game_values = [favorite_teams[r], spreads_int[r], underdog_teams[r]]
+        website_values.append(game_values)
+    for c1, c2, c3 in cells:
+        game_values = [c1.value, float(c2.value), c3.value]
+        cell_values.append(game_values)
+
+    for web, cell in zip(website_values, cell_values):
+        if web != cell:
+            final_values.append(web)
+        else:
+            final_values.append(cell)
+
+    favorite_teams_final = [fav_teams[0] for fav_teams in final_values]
+    spreads_string = [spreads[1] for spreads in final_values]
+    spreads_int = []
+    for i in range(0, len(spreads_string)):
+        if spreads_string[i] == '':
+            spreads_string[i] = 0
+        spreads_string[i] = spreads_int.append(float(spreads_string[i]))
+    underdog_teams_final = [under_teams[2] for under_teams in final_values]
+
+    # KEEP NEXT 3 LINES FOR TESTINGS PURPOSES
+    # print("Web:", website_values)
+    # print("Cell:", cell_values)
+    # print("Final:", final_values)
+
+    '''
+    replace any data changes for Favored Team (Column 'C'), the Spread (Column 'D'), and the Underdog Team (Column 'E')
+    - Ignores any Thurs games as this script is only planned to run a second time on Saturdays, after the Thurs games
+    '''
+    for r in range(difference_num_of_games, num_games_after_thur):
+        ht = home_team[r]
+        wk_sheet.cell(row=r + 2, column=3).value = favorite_teams_final[r]
+        wk_sheet.cell(row=r + 2, column=3).fill = clear_fill
+        if favorite_teams[r] == ht:
+            wk_sheet.cell(row=r + 2, column=3).fill = home_fill
+        wk_sheet.cell(row=r + 2, column=4).value = spreads_int[r]
+        wk_sheet.cell(row=r + 2, column=5).value = underdog_teams_final[r]
+        wk_sheet.cell(row=r + 2, column=5).fill = clear_fill
+        if underdog_teams[r] == ht:
+            wk_sheet.cell(row=r + 2, column=5).fill = home_fill
     wb.save(file)
