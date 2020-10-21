@@ -116,13 +116,11 @@ if wk_number not in all_sheets:
     template_copy = wb.copy_worksheet(template)
     new_wk_sheet = wb['Template Copy']
     new_wk_sheet.title = wk_number
-    wk_sheet = wb[wk_number]
 
-    # for s in range(len(wb.sheetnames)):
-    #     if wb.sheetnames[s] == wk_number:
-    #         break
-    #
-    # wb.active = s
+    for sheet in wb:
+        wb[sheet.title].views.sheetView[0].tabSelected = False
+
+    wb.active = new_wk_sheet
 
     for r in range(0, num_games):
         ht = home_team[r]
@@ -144,18 +142,17 @@ if wk_number not in all_sheets:
     wb.save(file)
 else:
     wk_sheet = wb[wk_number]
-    # for s in range(len(wb.sheetnames)):
-    #     if wb.sheetnames[s] == wk_number:
-    #         break
-    #
-    # wb.active = s
-    cells = wk_sheet['C2': 'E{}'.format(num_games + 1)]
+    for sheet in wb:
+        wb[sheet.title].views.sheetView[0].tabSelected = False
+
+    wb.active = wk_sheet
+    cells = wk_sheet['C3': 'E{}'.format(num_games + 1)]
 
     # Compare Website data to existing spreadsheet data
     website_values = []
     cell_values = []
     final_values = []
-    for r in range(difference_num_of_games, num_games_after_thur):
+    for r in range(difference_num_of_games, num_games_after_thur + 1):
         game_values = [favorite_teams[r], spreads_int[r], underdog_teams[r]]
         website_values.append(game_values)
     for c1, c2, c3 in cells:
@@ -188,13 +185,13 @@ else:
     '''
     for r in range(difference_num_of_games, num_games_after_thur):
         ht = home_team[r]
-        wk_sheet.cell(row=r + 2, column=3).value = favorite_teams_final[r]
-        wk_sheet.cell(row=r + 2, column=3).fill = clear_fill
+        wk_sheet.cell(row=r + 3, column=3).value = favorite_teams_final[r]
+        wk_sheet.cell(row=r + 3, column=3).fill = clear_fill
         if favorite_teams[r] == ht:
-            wk_sheet.cell(row=r + 2, column=3).fill = home_fill
-        wk_sheet.cell(row=r + 2, column=4).value = spreads_int[r]
-        wk_sheet.cell(row=r + 2, column=5).value = underdog_teams_final[r]
-        wk_sheet.cell(row=r + 2, column=5).fill = clear_fill
+            wk_sheet.cell(row=r + 3, column=3).fill = home_fill
+        wk_sheet.cell(row=r + 3, column=4).value = spreads_int[r]
+        wk_sheet.cell(row=r + 3, column=5).value = underdog_teams_final[r]
+        wk_sheet.cell(row=r + 3, column=5).fill = clear_fill
         if underdog_teams[r] == ht:
-            wk_sheet.cell(row=r + 2, column=5).fill = home_fill
+            wk_sheet.cell(row=r + 3, column=5).fill = home_fill
     wb.save(file)
