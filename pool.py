@@ -112,9 +112,19 @@ try:
     current_day = datetime.date.today().weekday()
     game_day_of_week = [day for day in dotw]
     num_games_a_thur = [num_games_a_t for num_games_a_t in dotw if num_games_a_t != 4]
+    num_games_a_sat = [num_games_a_s for num_games_a_s in dotw if num_games_a_s != 4 or num_games_a_s != 5]
     dotw_adjusted = [5 if day == 6 and time == '00:15:00Z' else day for day, time in zip(dotw, game_time)]
+    num_of_thur_games_list = []
+    num_pre_sun_games_list = []
+    for g in dotw_adjusted:
+        if g != 6 and g != 0 and g != 1:
+            num_pre_sun_games_list.append(g)
+        if g == 4:
+            num_of_thur_games_list.append(g)
+    num_of_thur_games = len(num_of_thur_games_list)
+    num_pre_sun_games = len(num_pre_sun_games_list)
     num_games_after_thur = len(num_games_a_thur)
-    num_games_after_sat = len(dotw_adjusted)
+    num_games_after_sat = len(num_games_a_sat)
     difference_num_of_games_after_thur = num_games - num_games_after_thur
     difference_num_of_games_after_sat = num_games - num_games_after_sat
 
@@ -167,14 +177,14 @@ try:
             wb[sheet.title].views.sheetView[0].tabSelected = False
 
         wb.active = wk_sheet
-        cells = wk_sheet['C3': 'E{}'.format(num_games + 1)]
+        cells = wk_sheet['C3': 'E{}'.format(num_games + num_of_thur_games)]
         if current_day == 4:
             # Compare Website data to existing spreadsheet data
             website_values = []
             cell_values = []
             final_values = []
 
-            for r in range(0, num_games_after_thur + 1):
+            for r in range(0, num_games_after_thur + num_of_thur_games):
                 game_values = [favorite_teams[r], spreads_int[r], underdog_teams[r], dotw_adjusted[r]]
                 website_values.append(game_values)
             for c1, c2, c3 in cells:
@@ -205,22 +215,21 @@ try:
             '''
             replace any data changes for Favored Team (Column 'C'), the Spread (Column 'D'), and the Underdog Team 
             (Column 'E')
-            - Ignores any Thurs games as this script is only planned to run a second time on Saturdays, after the 
-            Thurs games
+            - Ignores any Thurs games as this point as it is running on Fri updating for any Sat and Sun/Mon games.
             '''
             for r in range(difference_num_of_games_after_thur, num_games_after_thur):
                 day = day_of_week[r]
                 ht = home_team[r]
                 if day != 4:
-                    wk_sheet.cell(row=r + 3, column=3).value = favorite_teams_final[r]
-                    wk_sheet.cell(row=r + 3, column=3).fill = clear_fill
+                    wk_sheet.cell(row=r + (2 + num_of_thur_games), column=3).value = favorite_teams_final[r]
+                    wk_sheet.cell(row=r + (2 + num_of_thur_games), column=3).fill = clear_fill
                     if favorite_teams[r] == ht:
-                        wk_sheet.cell(row=r + 3, column=3).fill = home_fill
-                    wk_sheet.cell(row=r + 3, column=4).value = spreads_int[r]
-                    wk_sheet.cell(row=r + 3, column=5).value = underdog_teams_final[r]
-                    wk_sheet.cell(row=r + 3, column=5).fill = clear_fill
+                        wk_sheet.cell(row=r + (2 + num_of_thur_games), column=3).fill = home_fill
+                    wk_sheet.cell(row=r + (2 + num_of_thur_games), column=4).value = spreads_int[r]
+                    wk_sheet.cell(row=r + (2 + num_of_thur_games), column=5).value = underdog_teams_final[r]
+                    wk_sheet.cell(row=r + (2 + num_of_thur_games), column=5).fill = clear_fill
                     if underdog_teams[r] == ht:
-                        wk_sheet.cell(row=r + 3, column=5).fill = home_fill
+                        wk_sheet.cell(row=r + (2 + num_of_thur_games), column=5).fill = home_fill
             wb.save(file)
         if current_day == 5:
             # Compare Website data to existing spreadsheet data
@@ -228,7 +237,7 @@ try:
             cell_values = []
             final_values = []
 
-            for r in range(0, num_games_after_sat + 1):
+            for r in range(0, num_games_after_sat - num_pre_sun_games):
                 game_values = [favorite_teams[r], spreads_int[r], underdog_teams[r], dotw_adjusted[r]]
                 website_values.append(game_values)
             for c1, c2, c3 in cells:
@@ -259,22 +268,21 @@ try:
             '''
             replace any data changes for Favored Team (Column 'C'), the Spread (Column 'D'), and the Underdog Team 
             (Column 'E')
-            - Ignores any Thurs games as this script is only planned to run a second time on Saturdays, after the 
-            Thurs games
+            - Ignores any Thurs and Sat games as at this point is running on Sat for updates on Sun/Mon games.
             '''
-            for r in range(difference_num_of_games_after_sat, num_games_after_sat):
+            for r in range(difference_num_of_games_after_sat, num_games_after_sat - num_pre_sun_games):
                 day = day_of_week[r]
                 ht = home_team[r]
                 if day == 6 or day == 0 or day == 1:
-                    wk_sheet.cell(row=r + 3, column=3).value = favorite_teams_final[r]
-                    wk_sheet.cell(row=r + 3, column=3).fill = clear_fill
+                    wk_sheet.cell(row=r + (2 + num_pre_sun_games), column=3).value = favorite_teams_final[r]
+                    wk_sheet.cell(row=r + (2 + num_pre_sun_games), column=3).fill = clear_fill
                     if favorite_teams[r] == ht:
-                        wk_sheet.cell(row=r + 3, column=3).fill = home_fill
-                    wk_sheet.cell(row=r + 3, column=4).value = spreads_int[r]
-                    wk_sheet.cell(row=r + 3, column=5).value = underdog_teams_final[r]
-                    wk_sheet.cell(row=r + 3, column=5).fill = clear_fill
+                        wk_sheet.cell(row=r + (2 + num_pre_sun_games), column=3).fill = home_fill
+                    wk_sheet.cell(row=r + (2 + num_pre_sun_games), column=4).value = spreads_int[r]
+                    wk_sheet.cell(row=r + (2 + num_pre_sun_games), column=5).value = underdog_teams_final[r]
+                    wk_sheet.cell(row=r + (2 + num_pre_sun_games), column=5).fill = clear_fill
                     if underdog_teams[r] == ht:
-                        wk_sheet.cell(row=r + 3, column=5).fill = home_fill
+                        wk_sheet.cell(row=r + (2 + num_pre_sun_games), column=5).fill = home_fill
             wb.save(file)
 except Exception as e:
     logging.critical(e, exc_info=True)
