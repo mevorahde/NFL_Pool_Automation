@@ -1,5 +1,7 @@
 import datetime
 import logging
+import subprocess
+
 import requests
 from bs4 import BeautifulSoup as Bs
 from openpyxl import load_workbook
@@ -286,3 +288,7 @@ try:
             wb.save(file)
 except Exception as e:
     logging.critical(e, exc_info=True)
+finally:
+    sp = subprocess.Popen("testfile.bat", stdin=subprocess.PIPE)
+    sp.stdin.write("\r\n")  # send the CR/LF for pause
+    sp.stdin.close()  # close so that it will proceed
