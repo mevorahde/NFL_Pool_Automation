@@ -1,7 +1,7 @@
 import datetime
 import logging
 import subprocess
-
+from subprocess import run
 import requests
 from bs4 import BeautifulSoup as Bs
 from openpyxl import load_workbook
@@ -42,7 +42,8 @@ try:
     data = []
     for table in webpage.find_all("div", attrs={"class": "event-card"}):
         find_favorite_tm = table.find("td", attrs={"data-field": "current-spread", "data-side": True})
-        favorite_tm = find_favorite_tm.get("data-side")
+        favorite_tm = table.find("td", attrs={"data-field": "current-spread", "data-side": True})
+        game_done = table.find("span", attrs={"data-value": False}).attrs
         if favorite_tm == "home":
             tm1_name = table.find("tr", attrs={"data-side": "home"}).find("span", attrs={"class": "team-name"}) \
                 .find("a").find("span").get_text()
@@ -288,7 +289,7 @@ try:
             wb.save(file)
 except Exception as e:
     logging.critical(e, exc_info=True)
-finally:
-    sp = subprocess.Popen("testfile.bat", stdin=subprocess.PIPE)
-    sp.stdin.write("\r\n")  # send the CR/LF for pause
-    sp.stdin.close()  # close so that it will proceed
+#finally:
+    #sp = subprocess.Popen("testfile.bat", stdin=subprocess.PIPE)
+    #sp.stdin.write("\r\n")  # send the CR/LF for pause
+    #sp.stdin.close()  # close so that it will proceed
