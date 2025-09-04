@@ -137,3 +137,4 @@ dmypy.json
 /ev.bin
 
 *.bat
+*.xlsx
