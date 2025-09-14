@@ -7,10 +7,11 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 from dotenv import load_dotenv
 from pathlib import Path
+from datetime import datetime
+import pytz
+import sys
 
 # Activate '.env' file
-load_dotenv()
-load_dotenv(verbose=True)
 env_path = Path('.') / '.env'
 load_dotenv(dotenv_path=env_path)
 
@@ -32,6 +33,7 @@ team_abbr = {
     "STEELERS": "PIT", "TEXANS": "HOU", "TITANS": "TEN", "VIKINGS": "MIN"
 }
 
+
 def get_webpage(url):
     try:
         r = requests.get(url)
@@ -41,15 +43,17 @@ def get_webpage(url):
         logging.error(f"Failed to load webpage: {e}")
         return None
 
+
 def get_week_number(soup):
     try:
         return soup.find("div", class_="filters-week-picker") \
-                   .find("div", class_="selector week-picker-week") \
-                   .find("li", class_="menu-item active") \
-                   .find("span", attrs={"data-endpoint": True}).get_text()
+            .find("div", class_="selector week-picker-week") \
+            .find("li", class_="menu-item active") \
+            .find("span", attrs={"data-endpoint": True}).get_text()
     except AttributeError:
         logging.warning("Week number not found.")
         return "Unknown"
+
 
 def extract_team_info(table, side):
     tr = table.find("tr", attrs={"data-side": side})
@@ -57,32 +61,32 @@ def extract_team_info(table, side):
     abbr = tr.find("span", class_="team-name").find("a", attrs={"data-abbr": True}).get("data-abbr")
     return name, abbr
 
+
 def extract_spread_and_favorite(table):
     td = table.find("td", attrs={"data-field": "current-spread"})
     if not td:
         return "TBD", None
-
     span = td.find("span", class_="data-value")
     raw = span.get_text(strip=True) if span else td.get_text(strip=True).split(" ")[0]
-
     if raw.lower() in ["tbd", "n/a", ""]:
         return "TBD", None
-
     raw_clean = raw.replace("−", "-").replace("+", "").strip()
-    side = td.get("data-side")  # 'home' or 'away'
+    side = td.get("data-side")
     return raw_clean, side
+
 
 def extract_datetime(table):
     span = table.find("span", attrs={"data-value": True})
     return span.get("data-value") if span else "Unknown"
+
 
 def parse_game_card(table):
     away_name, away_abbr = extract_team_info(table, "away")
     home_name, home_abbr = extract_team_info(table, "home")
     spread, favorite_side = extract_spread_and_favorite(table)
     date_time = extract_datetime(table)
-
     return [away_name, spread, home_name, away_abbr, home_abbr, home_name.upper(), date_time, favorite_side]
+
 
 def scrape_nfl_data():
     url = "https://www.scoresandodds.com/nfl"
@@ -90,14 +94,11 @@ def scrape_nfl_data():
     if not soup:
         logging.error("Failed to load NFL page.")
         return None, "Unknown"
-
     week = get_week_number(soup)
     logging.info(f"Scraping data for Week {week}")
-
     data = []
     finalized_count = 0
     pending_count = 0
-
     for table in soup.find_all("div", class_="event-card"):
         try:
             row = parse_game_card(table)
@@ -108,33 +109,29 @@ def scrape_nfl_data():
             data.append(row)
         except Exception as e:
             logging.warning(f"Failed to parse game card: {e}")
-
     if not data:
         logging.error("No game data found.")
         return None, week
-
     df = pd.DataFrame(data, columns=[
         "Team1", "Spread", "Team2", "Team1_Abbr", "Team2_Abbr",
         "Home_Team", "UTC_DateTime", "Favorite_Side"
     ])
     df = apply_team_abbreviations(df)
-
     logging.info(f"Scraped {len(df)} games: {finalized_count} finalized, {pending_count} pending")
     return df, week
+
 
 def apply_team_abbreviations(df):
     df["Team1"] = df["Team1"].str.upper()
     df["Team2"] = df["Team2"].str.upper()
     df["Team1_Abbr"] = df["Team1"].map(team_abbr)
     df["Team2_Abbr"] = df["Team2"].map(team_abbr)
-
     missing_team1 = df[df["Team1_Abbr"].isna()]["Team1"].unique()
     missing_team2 = df[df["Team2_Abbr"].isna()]["Team2"].unique()
-
     if len(missing_team1) > 0 or len(missing_team2) > 0:
         logging.warning(f"Missing abbreviations for: {missing_team1.tolist() + missing_team2.tolist()}")
-
     return df
+
 
 def extract_favorite_underdog(row):
     spread_val = row["Spread"]
@@ -179,8 +176,54 @@ def extract_favorite_underdog(row):
     return favorite, underdog, spread_display, fav_abbr, und_abbr
 
 
+def filter_games_by_day(df):
+    pacific = pytz.timezone("America/Los_Angeles")
+    now = datetime.now(pacific)
+    dotw = now.strftime("%A")
 
-def update_excel(wk_number, df, dotw):
+    # ✅ Ensure UTC_DateTime is a datetime object
+    df["UTC_DateTime"] = pd.to_datetime(df["UTC_DateTime"], errors="coerce")
+
+    # ✅ Filter out games that have already started
+    df_filtered = df[df["UTC_DateTime"] > now].copy()
+    excluded = df[df["UTC_DateTime"] <= now]
+
+    logging.info(f"Excluded {len(excluded)} played games for {dotw}:")
+    for _, row in excluded.iterrows():
+        game_day = (
+            row["Local_DateTime"].strftime("%A")
+            if pd.notna(row.get("Local_DateTime"))
+            else "Unknown Day"
+        )
+        logging.info(f"  {row['Team1']} vs {row['Team2']} on {game_day} ({row['UTC_DateTime']})")
+
+    if not df_filtered.empty and "Local_DateTime" in df_filtered.columns:
+        earliest_game = df_filtered["Local_DateTime"].min()
+        logging.info(f"Earliest remaining game is on {earliest_game.strftime('%A, %Y-%m-%d %I:%M %p')}")
+    logging.info(f"Filtered games for {dotw}: {len(df_filtered)} remaining")
+
+    return df_filtered, dotw
+
+def get_local_day(utc_str):
+    pacific = pytz.timezone("America/Los_Angeles")
+    try:
+        dt = datetime.strptime(utc_str, "%Y-%m-%dT%H:%M:%SZ")
+        local_dt = dt.replace(tzinfo=pytz.utc).astimezone(pacific)
+        return local_dt.strftime("%A")
+    except Exception as e:
+        logging.warning(f"Failed to parse UTC datetime: {e}")
+        return "Unknown"
+
+def get_local_datetime(utc_str):
+    pacific = pytz.timezone("America/Los_Angeles")
+    try:
+        dt = datetime.strptime(utc_str, "%Y-%m-%dT%H:%M:%SZ")
+        return dt.replace(tzinfo=pytz.utc).astimezone(pacific)
+    except Exception as e:
+        logging.warning(f"Failed to convert UTC datetime: {e}")
+        return None
+
+def update_excel(wk_number, df_filtered, dotw):
     try:
         file = os.getenv("file_path")
         wb = load_workbook(filename=file)
@@ -189,67 +232,160 @@ def update_excel(wk_number, df, dotw):
 
         home_fill = PatternFill(start_color='F4B084', end_color='F4B084', fill_type='solid')
         clear_fill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
-        num_games = len(df)
 
+        # Create or overwrite sheet
         if wk_number in all_sheets:
             new_wk_sheet = wb[wk_number]
             logging.info(f"Overwriting existing sheet: {wk_number}")
-            for sheet in wb:
-                wb[sheet.title].views.sheetView[0].tabSelected = False
-            wb.active = new_wk_sheet
-
-            for r in range(num_games):
-                try:
-                    row = df.iloc[r]
-                    favorite, underdog, spread_val, fav_abbrev, und_abbrev = extract_favorite_underdog(row)
-                    ht = row["Home_Team"]
-
-                    new_wk_sheet.cell(row=r + 2, column=3).value = favorite
-                    new_wk_sheet.cell(row=r + 2, column=4).value = spread_val
-                    new_wk_sheet.cell(row=r + 2, column=5).value = underdog
-                    new_wk_sheet.cell(row=r + 2, column=9).value = fav_abbrev
-                    new_wk_sheet.cell(row=r + 2, column=11).value = und_abbrev
-
-                    cell_c = new_wk_sheet.cell(row=r + 2, column=3)
-                    cell_e = new_wk_sheet.cell(row=r + 2, column=5)
-
-                    if favorite == ht:
-                        cell_c.fill = home_fill
-                        cell_e.fill = clear_fill
-                    elif underdog == ht:
-                        cell_e.fill = home_fill
-                        cell_c.fill = clear_fill
-                    else:
-                        cell_c.fill = clear_fill
-                        cell_e.fill = clear_fill
-                        logging.warning(f"Home team '{ht}' not matched in favorite/underdog for row {r + 2}")
-
-                    for col in [14, 15]:
-                        new_wk_sheet.cell(row=r + 2, column=col).fill = clear_fill
-
-                    if DRY_RUN:
-                        logging.info(f"[Dry-run] Row {r + 2}: Favorite={favorite}, Spread={spread_val}, Underdog={underdog}, Home={ht}")
-
-                except Exception as e:
-                    logging.warning(f"Error updating row {r + 2}: {e}")
-
-            if not DRY_RUN:
-                wb.save(file)
-                logging.info(f"Excel updated and saved for {wk_number}")
-            else:
-                logging.info("Dry-run mode: Excel not saved.")
         else:
             template_copy = wb.copy_worksheet(template)
-            new_wk_sheet = wb['Template Copy']
-            new_wk_sheet.title = wk_number
+            template_copy.title = wk_number
+            new_wk_sheet = wb[wk_number]
             logging.info(f"Created new sheet: {wk_number}")
+
+        # Activate the new sheet
+        for sheet in wb:
+            sheet.views.sheetView[0].tabSelected = False
+        wb.active = new_wk_sheet
+        new_wk_sheet.views.sheetView[0].tabSelected = True
+
+        # Defensive check for Excel_Row
+        if "Excel_Row" not in df_filtered.columns:
+            logging.critical("Excel_Row column missing from DataFrame. Aborting Excel update.")
+            return
+
+        df = df_filtered.copy()
+        df = df[df["Excel_Row"].notna()]
+        df["Excel_Row"] = df["Excel_Row"].astype(int)
+
+        rows_to_update = df["Excel_Row"].unique()
+
+        # Clear all rows that will be updated
+        for row in rows_to_update:
+            logging.info(f"Clearing row {row}")
+            for col in [3, 4, 5, 9, 11, 14, 15]:
+                new_wk_sheet.cell(row=row, column=col).value = None
+                new_wk_sheet.cell(row=row, column=col).fill = clear_fill
+
+        # Update each row with FAVORITE vs UNDERDOG
+        for _, row in df.iterrows():
+            try:
+                excel_row = int(row["Excel_Row"])
+                favorite, underdog, spread_val, fav_abbrev, und_abbr = extract_favorite_underdog(row)
+                ht = row["Home_Team"]
+
+                logging.info(f"Updating row {excel_row}: {favorite} vs {underdog}, spread {spread_val}")
+
+                # ✅ Write favorite vs underdog
+                new_wk_sheet.cell(row=excel_row, column=3).value = favorite
+                new_wk_sheet.cell(row=excel_row, column=4).value = spread_val
+                new_wk_sheet.cell(row=excel_row, column=5).value = underdog
+                new_wk_sheet.cell(row=excel_row, column=9).value = fav_abbrev
+                new_wk_sheet.cell(row=excel_row, column=11).value = und_abbr
+
+                # ✅ Highlight home team if it's the favorite or underdog
+                cell_c = new_wk_sheet.cell(row=excel_row, column=3)
+                cell_e = new_wk_sheet.cell(row=excel_row, column=5)
+
+                if favorite == ht:
+                    cell_c.fill = home_fill
+                    cell_e.fill = clear_fill
+                elif underdog == ht:
+                    cell_e.fill = home_fill
+                    cell_c.fill = clear_fill
+                else:
+                    cell_c.fill = clear_fill
+                    cell_e.fill = clear_fill
+                    logging.warning(f"Home team '{ht}' not matched in favorite/underdog for row {excel_row}")
+
+                for col in [14, 15]:
+                    new_wk_sheet.cell(row=excel_row, column=col).fill = clear_fill
+
+            except Exception as e:
+                logging.warning(f"Error updating row {row.get('Excel_Row', 'Unknown')}: {e}")
+
+        wb.save(file)
+        logging.info(f"Excel updated and saved for {wk_number}")
+
     except Exception as e:
         logging.critical(f"Excel update failed: {e}", exc_info=True)
+        try:
+            logging.error(f"Available sheets: {wb.sheetnames}")
+        except:
+            logging.error("Workbook not loaded—no sheet names available.")
+
+    except Exception as e:
+        logging.critical(f"Excel update failed: {e}", exc_info=True)
+        try:
+            logging.error(f"Available sheets: {wb.sheetnames}")
+        except:
+            logging.error("Workbook not loaded—no sheet names available.")
+
+def verify_matchkey_alignment(df_full, df_filtered):
+    full_keys = df_full["MatchKey"].drop_duplicates()
+    filtered_keys = df_filtered["MatchKey"].drop_duplicates()
+
+    unmatched = filtered_keys[~filtered_keys.isin(full_keys)]
+
+    if unmatched.empty:
+        logging.info("✅ All MatchKeys in df_filtered matched df_full.")
+    else:
+        logging.warning("❌ Unmatched MatchKeys in df_filtered:")
+        for key in unmatched:
+            logging.warning(f"  {key}")
+
+def normalize_matchkeys(df):
+    df["Team1"] = df["Team1"].astype(str).str.strip().str.upper()
+    df["Team2"] = df["Team2"].astype(str).str.strip().str.upper()
+    df["MatchKey"] = (df["Team1"] + " vs " + df["Team2"]).str.strip().str.upper()
+    return df
+
+def main():
+    logging.info("Starting NFL pool automation...")
+
+    # ✅ Scrape and normalize
+    df_raw, week_label = scrape_nfl_data()
+    logging.info(f"Scraping data for Week {week_label}")
+    logging.info(f"Scraped {len(df_raw)} games")
+
+    df_raw = normalize_matchkeys(df_raw)
+
+    # ✅ Count how many games have already started
+    now = datetime.now(pytz.timezone("America/Los_Angeles"))
+    df_raw["UTC_DateTime"] = pd.to_datetime(df_raw["UTC_DateTime"], errors="coerce")
+    excluded_count = len(df_raw[df_raw["UTC_DateTime"] <= now])
+    logging.info(f"Detected {excluded_count} played games before {now.strftime('%A %I:%M %p')}")
+
+    # ✅ Assign Excel_Row based on full schedule, offset by excluded games
+    df_raw = df_raw.reset_index(drop=True)
+    df_raw["Excel_Row"] = df_raw.index + 2 + excluded_count  # Dynamic offset
+
+    # ✅ Filter out played games — Excel_Row is preserved
+    df_filtered, dotw = filter_games_by_day(df_raw)
+
+    # ✅ Confirm Excel_Row exists
+    if "Excel_Row" not in df_filtered.columns:
+        logging.critical("Excel_Row missing from filtered DataFrame. Aborting.")
+        return
+
+    # ✅ Confirm all rows have Excel_Row
+    unmatched = df_filtered[df_filtered["Excel_Row"].isna()]
+    if not unmatched.empty:
+        logging.warning(f"Unmatched rows after filtering: {len(unmatched)}")
+        for _, row in unmatched.iterrows():
+            logging.warning(f"  {row['Team1']} vs {row['Team2']} — MatchKey: {row['MatchKey']}")
+    else:
+        logging.info("✅ All filtered games have Excel_Row assigned.")
+
+    # ✅ Preview post-filter
+    logging.info("Post-filter preview:")
+    preview_cols = ["Team1", "Team2", "MatchKey", "Excel_Row"]
+    logging.info(df_filtered[preview_cols].to_string(index=False))
+
+    # ✅ Update Excel
+    update_excel(week_label, df_filtered, dotw)
+
+    logging.info("NFL pool automation complete.")
 
 if __name__ == "__main__":
-    df, wk_number = scrape_nfl_data()
-    if df is not None and wk_number != "Unknown":
-        dotw = "Sunday"  # You can enhance this later using UTC_DateTime
-        update_excel(wk_number, df, dotw)
-    else:
-        logging.error("Scraping failed or week number unavailable. Excel update aborted.")
+    main()
