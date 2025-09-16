@@ -10,13 +10,26 @@ from pathlib import Path
 from datetime import datetime
 import pytz
 import sys
+import smtplib
+from email.message import EmailMessage
+import gzip
+import shutil
+
 
 # Activate '.env' file
 env_path = Path('.') / '.env'
 load_dotenv(dotenv_path=env_path)
 
 # Logging setup
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+log_file = "nfl_spread_script.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 
 # Dry-run toggle
 DRY_RUN = False
@@ -34,6 +47,63 @@ team_abbr = {
 }
 
 
+def send_error_email(subject, body, log_path):
+    try:
+        msg = EmailMessage()
+        msg["From"] = os.getenv("EMAIL_ADDRESS")
+        msg["To"] = os.getenv("TO_EMAIL_ADDRESS")
+        msg["Subject"] = subject
+        msg.set_content(body)
+
+        # Attach log file
+        with open(log_path, "rb") as f:
+            msg.add_attachment(f.read(), maintype="text", subtype="plain", filename=os.path.basename(log_path))
+
+        with smtplib.SMTP(os.getenv("SMTP_SERVER"), int(os.getenv("SMTP_PORT"))) as server:
+            server.starttls()
+            server.login(os.getenv("EMAIL_ADDRESS"), os.getenv("EMAIL_PASSWORD"))
+            server.send_message(msg)
+
+        logging.info("Error email sent successfully.")
+    except Exception as e:
+        logging.warning(f"Failed to send error email: {e}")
+
+def send_test_email():
+    subject = "NFL Automation Test Email"
+    body = "This is a test email to confirm Gmail alert functionality is working."
+    try:
+        send_error_email(subject, body, log_file)
+        logging.info("Test email sent successfully.")
+    except Exception as e:
+        logging.critical(f"Test email failed: {e}", exc_info=True)
+
+
+def archive_log_file():
+    try:
+        log_path = log_file  # e.g., "nfl_spread_script.log"
+        timestamp = datetime.now().strftime("%Y-%m-%d")
+        archive_name = f"logs/nfl_spread_script_{timestamp}.log.gz"
+
+        os.makedirs("logs", exist_ok=True)
+
+        with open(log_path, "rb") as f_in:
+            with gzip.open(archive_name, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+
+        logging.info(f"Archived log to {archive_name}")
+
+        # Optional: clear original log file
+        open(log_path, "w").close()
+        logging.info("Cleared original log file after archiving.")
+
+    except Exception as e:
+        logging.error(f"Failed to archive log file: {e}")
+        send_error_email(
+            subject="NFL Spread Script: ERROR - Log Archiving Failed",
+            body=f"Failed to archive log file:\n{e}",
+            log_path=log_path
+        )
+
 def get_webpage(url):
     try:
         r = requests.get(url)
@@ -41,6 +111,11 @@ def get_webpage(url):
         return Bs(r.content, "html.parser")
     except Exception as e:
         logging.error(f"Failed to load webpage: {e}")
+        send_error_email(
+            subject="NFL Spread Script: ERROR - Webpage Load Failure",
+            body=f"Failed to load URL: {url}\nError: {e}",
+            log_path=log_file
+        )
         return None
 
 
@@ -51,7 +126,13 @@ def get_week_number(soup):
             .find("li", class_="menu-item active") \
             .find("span", attrs={"data-endpoint": True}).get_text()
     except AttributeError:
-        logging.warning("Week number not found.")
+        msg = "Week number not found in HTML structure."
+        logging.warning(msg)
+        send_error_email(
+            subject="NFL Spread Script: ERROR - Week Number Missing",
+            body=msg,
+            log_path=log_file
+        )
         return "Unknown"
 
 
@@ -91,14 +172,32 @@ def parse_game_card(table):
 def scrape_nfl_data():
     url = "https://www.scoresandodds.com/nfl"
     soup = get_webpage(url)
+
     if not soup:
         logging.error("Failed to load NFL page.")
+        send_error_email(
+            subject="NFL Scraper Error: Page Load Failure",
+            body="Failed to load NFL page from scoresandodds.com.",
+            log_path=log_file
+        )
         return None, "Unknown"
-    week = get_week_number(soup)
-    logging.info(f"Scraping data for Week {week}")
+
+    try:
+        week = get_week_number(soup)
+        logging.info(f"Scraping data for Week {week}")
+    except Exception as e:
+        logging.error(f"Failed to extract week number: {e}", exc_info=True)
+        send_error_email(
+            subject="NFL Scraper Error: Week Extraction Failed",
+            body=f"Error extracting week number:\n{e}",
+            log_path=log_file
+        )
+        return None, "Unknown"
+
     data = []
     finalized_count = 0
     pending_count = 0
+
     for table in soup.find_all("div", class_="event-card"):
         try:
             row = parse_game_card(table)
@@ -109,16 +208,32 @@ def scrape_nfl_data():
             data.append(row)
         except Exception as e:
             logging.warning(f"Failed to parse game card: {e}")
+
     if not data:
         logging.error("No game data found.")
+        send_error_email(
+            subject="NFL Scraper Error: No Game Data",
+            body="Scraper ran successfully but found no game data.",
+            log_path=log_file
+        )
         return None, week
-    df = pd.DataFrame(data, columns=[
-        "Team1", "Spread", "Team2", "Team1_Abbr", "Team2_Abbr",
-        "Home_Team", "UTC_DateTime", "Favorite_Side"
-    ])
-    df = apply_team_abbreviations(df)
-    logging.info(f"Scraped {len(df)} games: {finalized_count} finalized, {pending_count} pending")
-    return df, week
+
+    try:
+        df = pd.DataFrame(data, columns=[
+            "Team1", "Spread", "Team2", "Team1_Abbr", "Team2_Abbr",
+            "Home_Team", "UTC_DateTime", "Favorite_Side"
+        ])
+        df = apply_team_abbreviations(df)
+        logging.info(f"Scraped {len(df)} games: {finalized_count} finalized, {pending_count} pending")
+        return df, week
+    except Exception as e:
+        logging.critical(f"DataFrame construction or abbreviation failed: {e}", exc_info=True)
+        send_error_email(
+            subject="NFL Scraper Critical Error: DataFrame Failure",
+            body=f"Critical failure during DataFrame construction or abbreviation:\n{e}",
+            log_path=log_file
+        )
+        return None, week
 
 
 def apply_team_abbreviations(df):
@@ -126,10 +241,19 @@ def apply_team_abbreviations(df):
     df["Team2"] = df["Team2"].str.upper()
     df["Team1_Abbr"] = df["Team1"].map(team_abbr)
     df["Team2_Abbr"] = df["Team2"].map(team_abbr)
+
     missing_team1 = df[df["Team1_Abbr"].isna()]["Team1"].unique()
     missing_team2 = df[df["Team2_Abbr"].isna()]["Team2"].unique()
-    if len(missing_team1) > 0 or len(missing_team2) > 0:
-        logging.warning(f"Missing abbreviations for: {missing_team1.tolist() + missing_team2.tolist()}")
+    missing = list(missing_team1) + list(missing_team2)
+
+    if missing:
+        logging.warning(f"Missing abbreviations for: {missing}")
+        if len(missing) > 3:
+            send_error_email(
+                subject="NFL Spread Script: ERROR - Abbreviation Mapping",
+                body=f"Missing team abbreviations for: {missing}",
+                log_path=log_file
+            )
     return df
 
 
@@ -212,7 +336,14 @@ def get_local_day(utc_str):
         return local_dt.strftime("%A")
     except Exception as e:
         logging.warning(f"Failed to parse UTC datetime: {e}")
+        send_error_email(
+            subject="NFL Spread Script: ERROR - UTC Day Conversion",
+            body=f"Failed to convert UTC string: {utc_str}\nError: {e}",
+            log_path=log_file
+        )
         return "Unknown"
+
+
 
 def get_local_datetime(utc_str):
     pacific = pytz.timezone("America/Los_Angeles")
@@ -221,7 +352,13 @@ def get_local_datetime(utc_str):
         return dt.replace(tzinfo=pytz.utc).astimezone(pacific)
     except Exception as e:
         logging.warning(f"Failed to convert UTC datetime: {e}")
+        send_error_email(
+            subject="NFL Spread Script: ERROR - UTC Datetime Conversion",
+            body=f"Failed to convert UTC string: {utc_str}\nError: {e}",
+            log_path=log_file
+        )
         return None
+
 
 def update_excel(wk_number, df_filtered, dotw):
     try:
@@ -251,7 +388,13 @@ def update_excel(wk_number, df_filtered, dotw):
 
         # Defensive check for Excel_Row
         if "Excel_Row" not in df_filtered.columns:
-            logging.critical("Excel_Row column missing from DataFrame. Aborting Excel update.")
+            msg = "Excel_Row column missing from DataFrame. Aborting Excel update."
+            logging.critical(msg)
+            send_error_email(
+                subject="NFL Excel Update Critical Error",
+                body=msg,
+                log_path=log_file
+            )
             return
 
         df = df_filtered.copy()
@@ -276,14 +419,12 @@ def update_excel(wk_number, df_filtered, dotw):
 
                 logging.info(f"Updating row {excel_row}: {favorite} vs {underdog}, spread {spread_val}")
 
-                # ✅ Write favorite vs underdog
                 new_wk_sheet.cell(row=excel_row, column=3).value = favorite
                 new_wk_sheet.cell(row=excel_row, column=4).value = spread_val
                 new_wk_sheet.cell(row=excel_row, column=5).value = underdog
                 new_wk_sheet.cell(row=excel_row, column=9).value = fav_abbrev
                 new_wk_sheet.cell(row=excel_row, column=11).value = und_abbr
 
-                # ✅ Highlight home team if it's the favorite or underdog
                 cell_c = new_wk_sheet.cell(row=excel_row, column=3)
                 cell_e = new_wk_sheet.cell(row=excel_row, column=5)
 
@@ -314,25 +455,28 @@ def update_excel(wk_number, df_filtered, dotw):
         except:
             logging.error("Workbook not loaded—no sheet names available.")
 
-    except Exception as e:
-        logging.critical(f"Excel update failed: {e}", exc_info=True)
-        try:
-            logging.error(f"Available sheets: {wb.sheetnames}")
-        except:
-            logging.error("Workbook not loaded—no sheet names available.")
+        send_error_email(
+            subject="NFL Excel Update Critical Error",
+            body=f"Excel update failed:\n{e}",
+            log_path=log_file
+        )
 
 def verify_matchkey_alignment(df_full, df_filtered):
     full_keys = df_full["MatchKey"].drop_duplicates()
     filtered_keys = df_filtered["MatchKey"].drop_duplicates()
-
     unmatched = filtered_keys[~filtered_keys.isin(full_keys)]
 
     if unmatched.empty:
-        logging.info("✅ All MatchKeys in df_filtered matched df_full.")
+        logging.info("All MatchKeys in df_filtered matched df_full.")
     else:
-        logging.warning("❌ Unmatched MatchKeys in df_filtered:")
+        logging.warning("Unmatched MatchKeys in df_filtered:")
         for key in unmatched:
             logging.warning(f"  {key}")
+        send_error_email(
+            subject="NFL Spread Script: ERROR - MatchKey Mismatch",
+            body=f"Unmatched MatchKeys found:\n" + "\n".join(unmatched),
+            log_path=log_file
+        )
 
 def normalize_matchkeys(df):
     df["Team1"] = df["Team1"].astype(str).str.strip().str.upper()
@@ -343,49 +487,82 @@ def normalize_matchkeys(df):
 def main():
     logging.info("Starting NFL pool automation...")
 
-    # ✅ Scrape and normalize
-    df_raw, week_label = scrape_nfl_data()
-    logging.info(f"Scraping data for Week {week_label}")
-    logging.info(f"Scraped {len(df_raw)} games")
+    try:
+        # ✅ Scrape and normalize
+        df_raw, week_label = scrape_nfl_data()
 
-    df_raw = normalize_matchkeys(df_raw)
+        if df_raw is None or not isinstance(df_raw, pd.DataFrame):
+            msg = "Scraping failed or returned invalid data. Aborting pipeline."
+            logging.critical(msg)
+            send_error_email(
+                subject="NFL Automation Critical Error: Scraping Failed",
+                body=msg,
+                log_path=log_file
+            )
+            return
 
-    # ✅ Count how many games have already started
-    now = datetime.now(pytz.timezone("America/Los_Angeles"))
-    df_raw["UTC_DateTime"] = pd.to_datetime(df_raw["UTC_DateTime"], errors="coerce")
-    excluded_count = len(df_raw[df_raw["UTC_DateTime"] <= now])
-    logging.info(f"Detected {excluded_count} played games before {now.strftime('%A %I:%M %p')}")
+        logging.info(f"Scraping data for Week {week_label}")
+        logging.info(f"Scraped {len(df_raw)} games")
 
-    # ✅ Assign Excel_Row based on full schedule, offset by excluded games
-    df_raw = df_raw.reset_index(drop=True)
-    df_raw["Excel_Row"] = df_raw.index + 2 + excluded_count  # Dynamic offset
+        df_raw = normalize_matchkeys(df_raw)
 
-    # ✅ Filter out played games — Excel_Row is preserved
-    df_filtered, dotw = filter_games_by_day(df_raw)
+        # ✅ Count how many games have already started
+        now = datetime.now(pytz.timezone("America/Los_Angeles"))
+        df_raw["UTC_DateTime"] = pd.to_datetime(df_raw["UTC_DateTime"], errors="coerce")
+        excluded_count = len(df_raw[df_raw["UTC_DateTime"] <= now])
+        logging.info(f"Detected {excluded_count} played games before {now.strftime('%A %I:%M %p')}")
 
-    # ✅ Confirm Excel_Row exists
-    if "Excel_Row" not in df_filtered.columns:
-        logging.critical("Excel_Row missing from filtered DataFrame. Aborting.")
-        return
+        # ✅ Assign Excel_Row based on full schedule, offset by excluded games
+        df_raw = df_raw.reset_index(drop=True)
+        df_raw["Excel_Row"] = df_raw.index + 2 + excluded_count  # Dynamic offset
 
-    # ✅ Confirm all rows have Excel_Row
-    unmatched = df_filtered[df_filtered["Excel_Row"].isna()]
-    if not unmatched.empty:
-        logging.warning(f"Unmatched rows after filtering: {len(unmatched)}")
-        for _, row in unmatched.iterrows():
-            logging.warning(f"  {row['Team1']} vs {row['Team2']} — MatchKey: {row['MatchKey']}")
-    else:
-        logging.info("✅ All filtered games have Excel_Row assigned.")
+        # ✅ Filter out played games — Excel_Row is preserved
+        df_filtered, dotw = filter_games_by_day(df_raw)
 
-    # ✅ Preview post-filter
-    logging.info("Post-filter preview:")
-    preview_cols = ["Team1", "Team2", "MatchKey", "Excel_Row"]
-    logging.info(df_filtered[preview_cols].to_string(index=False))
+        # ✅ Confirm Excel_Row exists
+        if "Excel_Row" not in df_filtered.columns:
+            msg = "Excel_Row missing from filtered DataFrame. Aborting."
+            logging.critical(msg)
+            send_error_email(
+                subject="NFL Automation Critical Error: Excel_Row Missing",
+                body=msg,
+                log_path=log_file
+            )
+            return
 
-    # ✅ Update Excel
-    update_excel(week_label, df_filtered, dotw)
+        # ✅ Confirm all rows have Excel_Row
+        unmatched = df_filtered[df_filtered["Excel_Row"].isna()]
+        if not unmatched.empty:
+            logging.warning(f"Unmatched rows after filtering: {len(unmatched)}")
+            for _, row in unmatched.iterrows():
+                logging.warning(f"  {row['Team1']} vs {row['Team2']} — MatchKey: {row['MatchKey']}")
+        else:
+            logging.info("[OK] All filtered games have Excel_Row assigned.")
 
-    logging.info("NFL pool automation complete.")
+        # ✅ Preview post-filter
+        logging.info("Post-filter preview:")
+        preview_cols = ["Team1", "Team2", "MatchKey", "Excel_Row"]
+        logging.info(df_filtered[preview_cols].to_string(index=False))
+
+        # ✅ Update Excel
+        update_excel(week_label, df_filtered, dotw)
+
+        logging.info("NFL pool automation complete.")
+
+    except Exception as e:
+        logging.critical(f"Unhandled exception in main(): {e}", exc_info=True)
+        send_error_email(
+            subject="NFL Automation Crash",
+            body=f"Unhandled exception in main():\n{e}",
+            log_path=log_file
+        )
 
 if __name__ == "__main__":
     main()
+
+requests
+pandas
+pytz
+beautifulsoup4
+openpyxl
+python-dotenv
