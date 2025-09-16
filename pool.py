@@ -559,10 +559,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-requests
-pandas
-pytz
-beautifulsoup4
-openpyxl
-python-dotenv
