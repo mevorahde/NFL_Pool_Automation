@@ -31,7 +31,7 @@ Create a .env file in the root directory with the following values:\
 file_path="C:\\Path\\To\\Your\\Family Football Pool YYYY.xlsx"\
 #Toggle dry run mode (True = simulate without writing to Excel or sending emails)
 DRY_RUN=False\
-#Sender email credentials (use app password for Gmail)
+#Sender email credentials (use app password for Gmail)\
 EMAIL_ADDRESS=your_email@gmail.com\
 EMAIL_PASSWORD=your_app_password\
 #Recipient email for error alerts\
@@ -40,18 +40,15 @@ TO_EMAIL_ADDRESS=recipient_email@example.com\
 SMTP_SERVER=smtp.gmail.com\
 SMTP_PORT=587\
 
-
-Notes:
+🧠 Notes:
 - DRY_RUN=False enables full execution including Excel updates and email alerts.
 - EMAIL_ADDRESS and EMAIL_PASSWORD are used for Gmail SMTP authentication.
 - TO_EMAIL_ADDRESS is the recipient of error alerts.
 - file_path should point to your active NFL pool workbook.
 
 🚀 Usage
-Run the script manually or schedule via Task Scheduler / cron:
-python nfl_spread_scraper.py
-
-
+Run manually or via scheduler:
+python pool.py
 
 📧 Email Alerts
 Triggered on:
