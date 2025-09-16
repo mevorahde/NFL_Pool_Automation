@@ -22,18 +22,23 @@ This script automates the retrieval of NFL game spread data, filters for upcomin
 Install dependencies via pip:
 
 ```bash
-pip install pandas openpyxl requests beautifulsoup4 python-dotenv
+pip install requests pandas beautifulsoup4 openpyxl python-dotenv pytz
 ```
 
 ### 2. Environment Configuration
-Create a .env file in the root directory with the following values:
-file_path=
-DRY_RUN=False
-EMAIL_ADDRESS=
-TO_EMAIL_ADDRESS=
-EMAIL_PASSWORD=
-SMTP_SERVER=smtp.gmail.com
-SMTP_PORT=587
+Create a .env file in the root directory with the following values:\
+\
+file_path="C:\\Path\\To\\Your\\Family Football Pool YYYY.xlsx"\
+#Toggle dry run mode (True = simulate without writing to Excel or sending emails)
+DRY_RUN=False\
+#Sender email credentials (use app password for Gmail)
+EMAIL_ADDRESS=your_email@gmail.com\
+EMAIL_PASSWORD=your_app_password\
+#Recipient email for error alerts\
+TO_EMAIL_ADDRESS=recipient_email@example.com\
+#SMTP configuration (default for Gmail)\
+SMTP_SERVER=smtp.gmail.com\
+SMTP_PORT=587\
 
 
 Notes:
