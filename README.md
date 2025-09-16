@@ -29,7 +29,7 @@ pip install requests pandas beautifulsoup4 openpyxl python-dotenv pytz
 Create a .env file in the root directory with the following values:\
 \
 file_path="C:\\Path\\To\\Your\\Family Football Pool YYYY.xlsx"\
-#Toggle dry run mode (True = simulate without writing to Excel or sending emails)
+#Toggle dry run mode (True = simulate without writing to Excel or sending emails)\
 DRY_RUN=False\
 #Sender email credentials (use app password for Gmail)\
 EMAIL_ADDRESS=your_email@gmail.com\
@@ -38,7 +38,7 @@ EMAIL_PASSWORD=your_app_password\
 TO_EMAIL_ADDRESS=recipient_email@example.com\
 #SMTP configuration (default for Gmail)\
 SMTP_SERVER=smtp.gmail.com\
-SMTP_PORT=587\
+SMTP_PORT=587
 
 🧠 Notes:
 - DRY_RUN=False enables full execution including Excel updates and email alerts.
@@ -48,8 +48,9 @@ SMTP_PORT=587\
 
 🚀 Usage
 Run manually or via scheduler:
+```bash
 python pool.py
-
+```
 📧 Email Alerts
 Triggered on:
 - Data scraping failure
