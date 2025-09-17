@@ -88,7 +88,7 @@ NFL_Pool_Automation\
 │   │&emsp;&emsp;└── christmas_wednesday.html\
 │   │&emsp;&emsp;└── friday_game.html\
 │   │&emsp;&emsp;└── saturday_tripleheader.html\
-│   │&emsp;&emsp;└── thanksgiving.html
+│   │&emsp;&emsp;└── thanksgiving.html\
 ├── logs/\
 │&emsp;&emsp;└── WEEKARCHIVELOGS_YYYY_MM_DD.log\
 ├── .env\
