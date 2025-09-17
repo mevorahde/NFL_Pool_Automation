@@ -2,7 +2,7 @@ import os
 import requests
 import logging
 import pandas as pd
-from bs4 import BeautifulSoup as Bs
+from bs4 import BeautifulSoup as Bs, BeautifulSoup
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 from dotenv import load_dotenv
@@ -14,6 +14,8 @@ import smtplib
 from email.message import EmailMessage
 import gzip
 import shutil
+import time
+from requests.exceptions import RequestException
 
 
 # Activate '.env' file
@@ -104,18 +106,29 @@ def archive_log_file():
             log_path=log_path
         )
 
-def get_webpage(url):
+
+def fetch_with_retry(url, headers=None, max_retries=3, backoff_factor=2, timeout=10):
+    attempt = 0
+    while attempt < max_retries:
+        try:
+            response = requests.get(url, headers=headers, timeout=timeout)
+            response.raise_for_status()
+            return response
+        except RequestException as e:
+            attempt += 1
+            wait_time = backoff_factor ** attempt
+            logging.warning(f"Request failed (attempt {attempt}/{max_retries}): {e}. Retrying in {wait_time}s...")
+            time.sleep(wait_time)
+    logging.error(f"All {max_retries} attempts failed for URL: {url}")
+    raise ConnectionError(f"Failed to fetch data from {url} after {max_retries} retries.")
+
+
+def get_webpage(url, headers=None):
     try:
-        r = requests.get(url)
-        r.raise_for_status()
-        return Bs(r.content, "html.parser")
+        response = fetch_with_retry(url, headers=headers)
+        return BeautifulSoup(response.content, "html.parser")
     except Exception as e:
-        logging.error(f"Failed to load webpage: {e}")
-        send_error_email(
-            subject="NFL Spread Script: ERROR - Webpage Load Failure",
-            body=f"Failed to load URL: {url}\nError: {e}",
-            log_path=log_file
-        )
+        logging.error(f"Failed to fetch webpage after retries: {e}")
         return None
 
 
@@ -157,8 +170,22 @@ def extract_spread_and_favorite(table):
 
 
 def extract_datetime(table):
+    # Try real HTML format first
     span = table.find("span", attrs={"data-value": True})
-    return span.get("data-value") if span else "Unknown"
+    if span:
+        try:
+            return datetime.fromisoformat(span.get("data-value"))
+        except Exception:
+            pass
+
+    # Fallback to mock HTML format
+    try:
+        date_str = table.find("div", class_="game-date").get_text(strip=True)
+        return datetime.strptime(date_str, "%A, %B %d, %Y")
+    except Exception as e:
+        logging.warning(f"Date parsing failed: {e}")
+        return None
+
 
 
 def parse_game_card(table):
@@ -483,6 +510,25 @@ def normalize_matchkeys(df):
     df["Team2"] = df["Team2"].astype(str).str.strip().str.upper()
     df["MatchKey"] = (df["Team1"] + " vs " + df["Team2"]).str.strip().str.upper()
     return df
+
+def assign_excel_rows(df):
+    """
+    Assigns Excel row numbers based on game weekday.
+    Skips Friday games. Thursday starts at row 1.
+    """
+    weekday_order = ["Thursday", "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday"]
+    row_counter = 1
+    excel_rows = []
+
+    for dt in df["UTC_DateTime"]:
+        weekday = dt.strftime("%A")
+        if weekday == "Friday":
+            excel_rows.append(None)  # Skip Friday games
+        else:
+            excel_rows.append(row_counter)
+            row_counter += 1
+
+    return excel_rows
 
 def main():
     logging.info("Starting NFL pool automation...")

@@ -22,7 +22,7 @@ This script automates the retrieval of NFL game spread data, filters for upcomin
 Install dependencies via pip:
 
 ```bash
-pip install requests pandas beautifulsoup4 openpyxl python-dotenv pytz
+pip install requests pandas beautifulsoup4 openpyxl python-dotenv pytz pytest 
 ```
 
 ### 2. Environment Configuration
@@ -63,13 +63,32 @@ Each alert includes:
 - Archived log (.gz)
 
 🧪 Testing & Validation
-- Simulate edge-case schedules (e.g., Thanksgiving, Friday, Christmas games) using mock HTML.
-- Validate Excel_Row assignment logic with test harnesses.
-- Confirm MatchKey merges and log diagnostics before/after merge operations.
+Pytest suite covers:
+- Week Extraction: Validates get_week_number() across edge-case HTML files
+- Row Assignment: Confirms weekday-based Excel row logic for Thursday, Friday, and Saturday games
+- Abbreviation Mapping: Ensures all team names resolve to valid abbreviations
+- Datetime Parsing: Verifies extract_datetime() returns proper datetime objects
+- Excel Row Matching: Compares assigned rows against expected values in test_schedule.xlsx
+- Mock HTML Structure: Validates that all test HTML files are compatible with the parser
+Run tests with:
+
+```bash
+pytest tests/
+
+```
 
 📁 File Structure
 NFL_Pool_Automation\
 ├── Family Football Pool YYYY.xlsx\
+├──tests/\
+│   ├── test_edge_cases.py\
+│   ├── mock_html/\
+│   │&emsp;&emsp;└── black_friday.html\
+│   │&emsp;&emsp;└── christmas_tuesday.html\
+│   │&emsp;&emsp;└── christmas_wednesday.html\
+│   │&emsp;&emsp;└── friday_game.html\
+│   │&emsp;&emsp;└── saturday_tripleheader.html\
+│   │&emsp;&emsp;└── thanksgiving.html
 ├── logs/\
 │&emsp;&emsp;└── WEEKARCHIVELOGS_YYYY_MM_DD.log\
 ├── .env\
@@ -86,9 +105,7 @@ NFL_Pool_Automation\
 - Validate Excel updates with test data before deploying.
 
 📌 Future Enhancements
-- Test Cases for unique or future workflows 
-  - I.E. Christmas games on a Tues or Wed, 3 games on Thanksgiving Thurs
-- Persistent memory for last update timestamp
+- More test cases as the script is run over the course of one or many seasons.
 
 🏈 Author
 David — Software Engineer, automation enthusiast, and 49ers loyalist.
