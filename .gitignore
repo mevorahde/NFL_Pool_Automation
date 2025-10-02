@@ -138,3 +138,4 @@ dmypy.json
 
 *.bat
 *.xlsx
+/logs
