@@ -250,6 +250,10 @@ def scrape_nfl_data():
             "Team1", "Spread", "Team2", "Team1_Abbr", "Team2_Abbr",
             "Home_Team", "UTC_DateTime", "Favorite_Side"
         ])
+
+        # ✅ Inject game_day from UTC_DateTime
+        df["game_day"] = pd.to_datetime(df["UTC_DateTime"], errors="coerce").dt.day_name()
+
         df = apply_team_abbreviations(df)
         logging.info(f"Scraped {len(df)} games: {finalized_count} finalized, {pending_count} pending")
         return df, week
@@ -424,11 +428,21 @@ def update_excel(wk_number, df_filtered, dotw):
             )
             return
 
+        # Normalize dotw (day of the week)
+        dotw = dotw.strip().title()
+
+        # Lock spreads for games played today
+        locked_game_days = [dotw]
+        logging.info(f"Locked game days for today ({dotw}): {locked_game_days}")
+
         df = df_filtered.copy()
         df = df[df["Excel_Row"].notna()]
         df["Excel_Row"] = df["Excel_Row"].astype(int)
+        df["game_day"] = df["game_day"].astype(str).str.strip().str.title()
 
-        rows_to_update = df["Excel_Row"].unique()
+        # Filter out locked rows before clearing
+        df_unlocked = df[~df["game_day"].isin(locked_game_days)]
+        rows_to_update = df_unlocked["Excel_Row"].unique()
 
         # Clear all rows that will be updated
         for row in rows_to_update:
@@ -438,9 +452,13 @@ def update_excel(wk_number, df_filtered, dotw):
                 new_wk_sheet.cell(row=row, column=col).fill = clear_fill
 
         # Update each row with FAVORITE vs UNDERDOG
-        for _, row in df.iterrows():
+        for _, row in df_unlocked.iterrows():
             try:
                 excel_row = int(row["Excel_Row"])
+                game_day = row["game_day"]
+
+                logging.debug(f"Row {excel_row}: game_day={game_day}, dotw={dotw}")
+
                 favorite, underdog, spread_val, fav_abbrev, und_abbr = extract_favorite_underdog(row)
                 ht = row["Home_Team"]
 
@@ -549,6 +567,17 @@ def main():
 
         logging.info(f"Scraping data for Week {week_label}")
         logging.info(f"Scraped {len(df_raw)} games")
+
+        # ✅ Localize game_day to Pacific Time
+        df_raw["game_day"] = (
+            pd.to_datetime(df_raw["UTC_DateTime"], errors="coerce", utc=True)
+            .dt.tz_convert("America/Los_Angeles")
+            .dt.day_name()
+        )
+
+        # ✅ Preview game_day assignments
+        logging.info("Preview of game_day assignments:")
+        logging.info(df_raw[["Team1", "Team2", "UTC_DateTime", "game_day"]].to_string(index=False))
 
         df_raw = normalize_matchkeys(df_raw)
 

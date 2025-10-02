@@ -1,3 +1,5 @@
+**Version:** 2025.09.18
+
 # 🏈 NFL Spread Data Scraper & Excel Automation
 
 This script automates the retrieval of NFL game spread data, filters for upcoming matchups, and updates a structured Excel workbook with formatted entries. It includes robust error handling, Gmail-based alerting, and log archiving for long-term reliability.
@@ -5,15 +7,43 @@ This script automates the retrieval of NFL game spread data, filters for upcomin
 ---
 
 ## 📦 Features
-
-- **Web Scraping**: Extracts NFL game data including teams, dates, times, and betting spreads.
-- **Timezone Conversion**: Converts UTC timestamps to Pacific Time for accurate filtering.
-- **Excel Integration**: Updates or creates sheets with conditional formatting and dynamic row assignment.
-- **Error Alerts**: Sends Gmail notifications for critical failures with log file attachments.
-- **Log Archiving**: Compresses logs weekly using gzip and optionally clears originals.
-- **MatchKey Normalization**: Ensures consistent row mapping across updates.
+- Web Scraping: Extracts NFL game data including teams, dates, times, and betting spreads from scoresandodds.com.
+- Timezone-Aware Filtering: Converts UTC timestamps to Pacific Time and derives game_day using localized weekday logic for accurate spread locking.
+- Dynamic Spread Locking: Prevents overwriting spreads for games occurring today, based on Pacific weekday logic.
+- Excel Integration: Updates or creates weekly sheets with conditional formatting, dynamic row assignment, and locked spread protection.
+- Error Alerts: Sends Gmail notifications for critical failures with log file attachments and diagnostic context.
+- Log Archiving: Compresses logs weekly using gzip and optionally clears originals to maintain disk hygiene.
+- MatchKey Normalization: Ensures consistent row mapping across updates, even with team name variations or schedule anomalies.
 
 ---
+## 📋 Spread Locking Rules Summary
+
+This table outlines the logic behind when spreads are locked based on the day the automation script runs. It ensures that picks for games occurring today are preserved and not overwritten by late-week updates.
+
+| **Game Day** | **Spread Locks On** | **Script Run Day That Triggers Lock** |
+|--------------|---------------------|----------------------------------------|
+| Monday       | Saturday            | Saturday                                |
+| Tuesday      | Monday              | Monday                                  |
+| Wednesday    | Tuesday             | Tuesday                                 |
+| Thursday     | Wednesday           | Wednesday                               |
+| Friday       | Thursday            | Thursday                                |
+| Saturday     | Friday              | Friday                                  |
+| Sunday       | Saturday            | Saturday                                |
+
+🧠 How This Works
+- The script runs daily and determines the current day (dotw) in Pacific Time.
+- It sets locked_game_days = [dotw] to prevent overwriting spreads for games occurring today.
+- This logic is implemented in update_excel() and filters out locked rows before updating.
+```python
+df_unlocked = df[~df["game_day"].isin(locked_game_days)]
+```
+
+🔍 Why It Matters
+This rule-based locking system ensures:
+- ✅ Thursday night games are locked when the script runs on Thursday
+- ✅ Saturday tripleheaders are locked on Saturday
+- ✅ Sunday games are locked before kickoff when the script runs Saturday
+It’s designed to match your family pick rules and prevent last-minute spread changes from affecting locked picks.
 
 ## 🛠️ Setup
 
@@ -68,6 +98,7 @@ Pytest suite covers:
 - Row Assignment: Confirms weekday-based Excel row logic for Thursday, Friday, and Saturday games
 - Abbreviation Mapping: Ensures all team names resolve to valid abbreviations
 - Datetime Parsing: Verifies extract_datetime() returns proper datetime objects
+- Game Day Classification: Validates that game_day aligns with Pacific Time for edge-case kickoff times (e.g., Thursday night, Saturday tripleheaders)
 - Excel Row Matching: Compares assigned rows against expected values in test_schedule.xlsx
 - Mock HTML Structure: Validates that all test HTML files are compatible with the parser
 Run tests with:
@@ -102,7 +133,9 @@ NFL_Pool_Automation\
 - Always restore from backup before testing new logic.
 - Normalize merge keys and log diagnostics before/after merge operations.
 - Archive logs weekly and purge older ones to keep the system lean.
-- Validate Excel updates with test data before deploying.
+- Validate Excel updates with test data before deploying. 
+- Confirm `game_day` is timezone-localized before filtering or locking spreads.
+
 
 📌 Future Enhancements
 - More test cases as the script is run over the course of one or many seasons.
