@@ -400,6 +400,7 @@ def update_excel(wk_number, df_filtered, dotw):
 
         home_fill = PatternFill(start_color='F4B084', end_color='F4B084', fill_type='solid')
         clear_fill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
+        night_fill = PatternFill(start_color='00B0F0', end_color='00B0F0', fill_type='solid')  # SNF/MNF highlight
 
         # Create or overwrite sheet
         if wk_number in all_sheets:
@@ -428,10 +429,7 @@ def update_excel(wk_number, df_filtered, dotw):
             )
             return
 
-        # Normalize dotw (day of the week)
         dotw = dotw.strip().title()
-
-        # Lock spreads for games played today
         locked_game_days = [dotw]
         logging.info(f"Locked game days for today ({dotw}): {locked_game_days}")
 
@@ -439,6 +437,15 @@ def update_excel(wk_number, df_filtered, dotw):
         df = df[df["Excel_Row"].notna()]
         df["Excel_Row"] = df["Excel_Row"].astype(int)
         df["game_day"] = df["game_day"].astype(str).str.strip().str.title()
+
+        # Identify SNF and MNF rows
+        sunday_games = df[df["game_day"] == "Sunday"]
+        monday_games = df[df["game_day"] == "Monday"]
+
+        latest_sunday = sunday_games["UTC_DateTime"].max() if not sunday_games.empty else None
+        snf_rows = sunday_games[sunday_games["UTC_DateTime"] == latest_sunday]["Excel_Row"].tolist()
+        mnf_rows = monday_games["Excel_Row"].tolist()
+        night_rows = set(snf_rows + mnf_rows)
 
         # Filter out locked rows before clearing
         df_unlocked = df[~df["game_day"].isin(locked_game_days)]
@@ -484,8 +491,13 @@ def update_excel(wk_number, df_filtered, dotw):
                     cell_e.fill = clear_fill
                     logging.warning(f"Home team '{ht}' not matched in favorite/underdog for row {excel_row}")
 
-                for col in [14, 15]:
-                    new_wk_sheet.cell(row=excel_row, column=col).fill = clear_fill
+                # Apply SNF/MNF highlight
+                if excel_row in night_rows:
+                    for col in [14, 15]:
+                        new_wk_sheet.cell(row=excel_row, column=col).fill = night_fill
+                else:
+                    for col in [14, 15]:
+                        new_wk_sheet.cell(row=excel_row, column=col).fill = clear_fill
 
             except Exception as e:
                 logging.warning(f"Error updating row {row.get('Excel_Row', 'Unknown')}: {e}")
