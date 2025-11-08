@@ -42,7 +42,7 @@ team_abbr = {
     "BRONCOS": "DEN", "BROWNS": "CLE", "BUCCANEERS": "TB", "CARDINALS": "ARI",
     "CHARGERS": "LAC", "CHIEFS": "KC", "COLTS": "IND", "COMMANDERS": "WAS",
     "COWBOYS": "DAL", "DOLPHINS": "MIA", "EAGLES": "PHI", "FALCONS": "ATL",
-    "GIANTS": "NYG", "JAGUARS": "JAX", "JETS": "NYJ", "LIONS": "DET",
+    "GIANTS": "NYG", "JAGUARS": "JAC", "JETS": "NYJ", "LIONS": "DET",
     "PACKERS": "GB", "PANTHERS": "CAR", "PATRIOTS": "NE", "RAIDERS": "LV",
     "RAMS": "LAR", "RAVENS": "BAL", "SAINTS": "NO", "SEAHAWKS": "SEA",
     "STEELERS": "PIT", "TEXANS": "HOU", "TITANS": "TEN", "VIKINGS": "MIN"
