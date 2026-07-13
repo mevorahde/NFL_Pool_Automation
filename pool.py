@@ -36,6 +36,9 @@ logging.basicConfig(
 # Dry-run toggle
 DRY_RUN = False
 
+# The workbook template uses row 1 for headers; game data begins on row 2.
+WORKBOOK_HEADER_ROWS = 1
+
 # NFL team abbreviations
 team_abbr = {
     "49ERS": "SF", "BEARS": "CHI", "BENGALS": "CIN", "BILLS": "BUF",
@@ -331,17 +334,23 @@ def extract_favorite_underdog(row):
     return favorite, underdog, spread_display, fav_abbr, und_abbr
 
 
-def filter_games_by_day(df):
+def filter_games_by_day(df, now=None):
     pacific = pytz.timezone("America/Los_Angeles")
-    now = datetime.now(pacific)
-    dotw = now.strftime("%A")
+    now = datetime.now(pacific) if now is None else now
+    now = pd.Timestamp(now)
+    if now.tzinfo is None:
+        now = now.tz_localize(pacific)
+    now_local = now.tz_convert(pacific)
+    dotw = now_local.strftime("%A")
+    now = now_local.tz_convert("UTC")
 
     # ✅ Ensure UTC_DateTime is a datetime object
-    df["UTC_DateTime"] = pd.to_datetime(df["UTC_DateTime"], errors="coerce")
+    df_working = df.copy(deep=True)
+    df_working["UTC_DateTime"] = _validated_kickoff_timestamps(df_working)
 
     # ✅ Filter out games that have already started
-    df_filtered = df[df["UTC_DateTime"] > now].copy()
-    excluded = df[df["UTC_DateTime"] <= now]
+    df_filtered = df_working[df_working["UTC_DateTime"] > now].copy()
+    excluded = df_working[df_working["UTC_DateTime"] <= now]
 
     logging.info(f"Excluded {len(excluded)} played games for {dotw}:")
     for _, row in excluded.iterrows():
@@ -541,24 +550,41 @@ def normalize_matchkeys(df):
     df["MatchKey"] = (df["Team1"] + " vs " + df["Team2"]).str.strip().str.upper()
     return df
 
-def assign_excel_rows(df):
-    """
-    Assigns Excel row numbers based on game weekday.
-    Skips Friday games. Thursday starts at row 1.
-    """
-    weekday_order = ["Thursday", "Saturday", "Sunday", "Monday", "Tuesday", "Wednesday"]
-    row_counter = 1
-    excel_rows = []
+def _validated_kickoff_timestamps(df):
+    if "UTC_DateTime" not in df.columns:
+        raise ValueError("UTC_DateTime column is required for Excel row assignment")
 
-    for dt in df["UTC_DateTime"]:
-        weekday = dt.strftime("%A")
-        if weekday == "Friday":
-            excel_rows.append(None)  # Skip Friday games
-        else:
-            excel_rows.append(row_counter)
-            row_counter += 1
+    timestamps = pd.to_datetime(df["UTC_DateTime"], errors="coerce", utc=True)
+    invalid = timestamps.isna()
+    if invalid.any():
+        invalid_rows = ", ".join(str(index) for index in df.index[invalid])
+        raise ValueError(
+            "UTC_DateTime contains invalid or missing kickoff timestamps at "
+            f"DataFrame rows: {invalid_rows}"
+        )
+    return timestamps
 
-    return excel_rows
+
+def assign_excel_rows(df, header_rows=WORKBOOK_HEADER_ROWS):
+    """Return stable Excel rows for every game in full scraped-schedule order."""
+    if isinstance(header_rows, bool) or not isinstance(header_rows, int) or header_rows < 0:
+        raise ValueError("header_rows must be a non-negative integer")
+
+    _validated_kickoff_timestamps(df)
+    first_game_row = header_rows + 1
+    return pd.Series(
+        range(first_game_row, first_game_row + len(df)),
+        index=df.index,
+        dtype="int64",
+        name="Excel_Row",
+    )
+
+
+def prepare_schedule_for_excel(df, now=None, header_rows=WORKBOOK_HEADER_ROWS):
+    """Assign stable rows from the full schedule, then remove started games."""
+    prepared = df.copy(deep=True)
+    prepared["Excel_Row"] = assign_excel_rows(prepared, header_rows=header_rows)
+    return filter_games_by_day(prepared, now=now)
 
 def main():
     logging.info("Starting NFL pool automation...")
@@ -593,18 +619,9 @@ def main():
 
         df_raw = normalize_matchkeys(df_raw)
 
-        # ✅ Count how many games have already started
-        now = datetime.now(pytz.timezone("America/Los_Angeles"))
-        df_raw["UTC_DateTime"] = pd.to_datetime(df_raw["UTC_DateTime"], errors="coerce")
-        excluded_count = len(df_raw[df_raw["UTC_DateTime"] <= now])
-        logging.info(f"Detected {excluded_count} played games before {now.strftime('%A %I:%M %p')}")
-
-        # ✅ Assign Excel_Row based on full schedule, offset by excluded games
-        df_raw = df_raw.reset_index(drop=True)
-        df_raw["Excel_Row"] = df_raw.index + 2 + excluded_count  # Dynamic offset
-
-        # ✅ Filter out played games — Excel_Row is preserved
-        df_filtered, dotw = filter_games_by_day(df_raw)
+        # Assign rows from the complete scraped schedule before filtering so a
+        # matchup keeps the same workbook row as earlier games begin.
+        df_filtered, dotw = prepare_schedule_for_excel(df_raw)
 
         # ✅ Confirm Excel_Row exists
         if "Excel_Row" not in df_filtered.columns:
