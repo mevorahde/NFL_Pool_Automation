@@ -111,7 +111,7 @@ python -m pip install -r requirements.txt
 Create a local `.env` file in the repository root. Use placeholders until you are ready to configure a private environment:
 
 ```dotenv
-file_path=<path-to-a-backup-or-working-copy-of-your-pool-workbook>
+file_path=<managed-automatically-when-the-script-runs>
 EMAIL_ADDRESS=<gmail-sender-address>
 EMAIL_PASSWORD=<gmail-app-password>
 TO_EMAIL_ADDRESS=<notification-recipient-address>
@@ -119,7 +119,7 @@ SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
 ```
 
-The workbook path must reference an `.xlsx` file compatible with the layout expected by `update_excel()`. Its first worksheet is treated as the template for new week sheets.
+At startup, the application determines the current Pacific year and ensures that `Family Football Pool YYYY.xlsx` exists beside `pool.py`. If it is missing, the application creates it from `Family Football Pool Template.xlsx`. An existing yearly workbook is never overwritten. The application then updates only the `.env` `file_path` entry to the resolved yearly workbook and uses its first worksheet as the template for new week sheets.
 
 There is no functional or configurable dry-run mode. Running the production entry point can access the live website, write the configured workbook, and attempt email notifications on failures.
 
@@ -127,11 +127,10 @@ There is no functional or configurable dry-run mode. Running the production entr
 
 Before the first production run:
 
-1. Make a separate backup of the workbook.
-2. Test with a disposable working copy and point `file_path` to that copy.
-3. Confirm the first worksheet is the intended template and that game rows begin at row 2.
-4. Review the configured sender, recipient, and workbook path.
-5. Close applications that may lock the workbook file.
+1. Review `Family Football Pool Template.xlsx` and confirm game rows begin at row 2.
+2. If the current year's workbook already exists, make a separate backup of it.
+3. Review the configured sender and recipient settings.
+4. Close applications that may lock the workbook file.
 
 Run the application:
 
@@ -152,10 +151,10 @@ python -m pytest -q
 Current verified result:
 
 ```text
-36 passed
+42 passed
 ```
 
-The suite uses saved HTML fixtures and tracked test-workbook data. It covers HTML structure, week and datetime parsing, official and malformed team-name mapping, Friday/Thanksgiving/Saturday schedules, deterministic Excel rows, simulated runs at different times, invalid timestamps, caller DataFrame preservation, and the production schedule-preparation connection.
+The suite uses saved HTML fixtures and tracked test-workbook data. It covers HTML structure, automatic advancement from an expired slate to the next NFL week, week and datetime parsing, official and malformed team-name mapping, Friday/Thanksgiving/Saturday schedules, deterministic Excel rows, simulated runs at different times, invalid timestamps, caller DataFrame preservation, yearly workbook creation without overwriting existing data, `.env` path updates, and the production connections.
 
 The tests do not exercise every operational workflow. In particular, they do not perform a live source-site request, send SMTP email, or update the `.env`-selected production workbook.
 

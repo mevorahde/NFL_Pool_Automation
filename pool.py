@@ -5,7 +5,7 @@ import pandas as pd
 from bs4 import BeautifulSoup as Bs, BeautifulSoup
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv, set_key
 from pathlib import Path
 from datetime import datetime
 import pytz
@@ -16,10 +16,13 @@ import gzip
 import shutil
 import time
 from requests.exceptions import RequestException
+from urllib.parse import urljoin, urlparse
 
 
-# Activate '.env' file
-env_path = Path('.') / '.env'
+# Activate '.env' file from the repository directory even when Task Scheduler
+# starts the script from a different working directory.
+PROJECT_DIR = Path(__file__).resolve().parent
+env_path = PROJECT_DIR / '.env'
 load_dotenv(dotenv_path=env_path)
 
 # Logging setup
@@ -38,6 +41,52 @@ DRY_RUN = False
 
 # The workbook template uses row 1 for headers; game data begins on row 2.
 WORKBOOK_HEADER_ROWS = 1
+
+NFL_URL = "https://www.scoresandodds.com/nfl"
+MAX_AUTO_WEEK_ADVANCES = 4
+WORKBOOK_TEMPLATE_PATH = PROJECT_DIR / "Family Football Pool Template.xlsx"
+
+
+def _current_pacific_year(now=None):
+    pacific = pytz.timezone("America/Los_Angeles")
+    timestamp = pd.Timestamp.now(tz=pacific) if now is None else pd.Timestamp(now)
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.tz_localize(pacific)
+    else:
+        timestamp = timestamp.tz_convert(pacific)
+    return timestamp.year
+
+
+def ensure_current_year_workbook(
+    template_path=WORKBOOK_TEMPLATE_PATH,
+    env_path=env_path,
+    now=None,
+):
+    template_path = Path(template_path).resolve()
+    env_path = Path(env_path).resolve()
+    if not template_path.is_file():
+        raise FileNotFoundError(f"Workbook template not found: {template_path}")
+
+    year = _current_pacific_year(now)
+    target_path = template_path.with_name(f"Family Football Pool {year}.xlsx")
+    if target_path.exists() and not target_path.is_file():
+        raise IsADirectoryError(f"Yearly workbook path is not a file: {target_path}")
+
+    if not target_path.exists():
+        shutil.copy2(template_path, target_path)
+        logging.info(f"Created yearly workbook: {target_path.name}")
+    else:
+        logging.info(f"Using existing yearly workbook: {target_path.name}")
+
+    env_path.touch(exist_ok=True)
+    target_value = str(target_path)
+    configured_value = dotenv_values(env_path).get("file_path")
+    if configured_value != target_value:
+        set_key(str(env_path), "file_path", target_value, quote_mode="auto")
+        logging.info(f"Updated .env file_path for the {year} workbook.")
+
+    os.environ["file_path"] = target_value
+    return target_path
 
 # NFL team abbreviations
 team_abbr = {
@@ -234,31 +283,7 @@ def parse_game_card(table):
     return [away_name, spread, home_name, away_abbr, home_abbr, home_name.upper(), date_time, favorite_side]
 
 
-def scrape_nfl_data():
-    url = "https://www.scoresandodds.com/nfl"
-    soup = get_webpage(url)
-
-    if not soup:
-        logging.error("Failed to load NFL page.")
-        send_error_email(
-            subject="NFL Scraper Error: Page Load Failure",
-            body="Failed to load NFL page from scoresandodds.com.",
-            log_path=log_file
-        )
-        return None, "Unknown"
-
-    try:
-        week = get_week_number(soup)
-        logging.info(f"Scraping data for Week {week}")
-    except Exception as e:
-        logging.error(f"Failed to extract week number: {e}", exc_info=True)
-        send_error_email(
-            subject="NFL Scraper Error: Week Extraction Failed",
-            body=f"Error extracting week number:\n{e}",
-            log_path=log_file
-        )
-        return None, "Unknown"
-
+def _extract_game_rows(soup):
     data = []
     finalized_count = 0
     pending_count = 0
@@ -273,6 +298,119 @@ def scrape_nfl_data():
             data.append(row)
         except Exception as e:
             logging.warning(f"Failed to parse game card: {e}")
+
+    return data, finalized_count, pending_count
+
+
+def _all_games_started(data, now=None):
+    if not data:
+        return False
+
+    kickoffs = pd.to_datetime([row[6] for row in data], errors="coerce", utc=True)
+    if kickoffs.isna().any():
+        return False
+
+    now_utc = pd.Timestamp.now(tz="UTC") if now is None else pd.Timestamp(now)
+    if now_utc.tzinfo is None:
+        now_utc = now_utc.tz_localize("UTC")
+    else:
+        now_utc = now_utc.tz_convert("UTC")
+
+    return not (kickoffs > now_utc).any()
+
+
+def _next_week_url(soup, current_url):
+    picker = soup.find("div", class_="selector week-picker-week")
+    if picker is None:
+        return None
+
+    menu_items = picker.find_all("li", class_="menu-item")
+    active_index = next(
+        (
+            index
+            for index, item in enumerate(menu_items)
+            if "active" in item.get("class", [])
+        ),
+        None,
+    )
+    if active_index is None:
+        return None
+
+    current_origin = urlparse(current_url)
+    for item in menu_items[active_index + 1:]:
+        endpoint = item.find("span", attrs={"data-endpoint": True})
+        if endpoint is None:
+            continue
+
+        candidate = urljoin(current_url, endpoint["data-endpoint"])
+        candidate_origin = urlparse(candidate)
+        if (
+            candidate_origin.scheme == current_origin.scheme
+            and candidate_origin.netloc == current_origin.netloc
+        ):
+            return candidate
+
+    return None
+
+
+def scrape_nfl_data(now=None):
+    url = NFL_URL
+    soup = get_webpage(url)
+
+    if not soup:
+        logging.error("Failed to load NFL page.")
+        send_error_email(
+            subject="NFL Scraper Error: Page Load Failure",
+            body="Failed to load NFL page from scoresandodds.com.",
+            log_path=log_file
+        )
+        return None, "Unknown"
+
+    visited_urls = {url}
+    for _ in range(MAX_AUTO_WEEK_ADVANCES + 1):
+        try:
+            week = get_week_number(soup)
+            logging.info(f"Scraping data for Week {week}")
+        except Exception as e:
+            logging.error(f"Failed to extract week number: {e}", exc_info=True)
+            send_error_email(
+                subject="NFL Scraper Error: Week Extraction Failed",
+                body=f"Error extracting week number:\n{e}",
+                log_path=log_file
+            )
+            return None, "Unknown"
+
+        data, finalized_count, pending_count = _extract_game_rows(soup)
+        if not _all_games_started(data, now=now):
+            break
+
+        next_url = _next_week_url(soup, url)
+        if next_url is None or next_url in visited_urls:
+            break
+
+        logging.info(
+            f"All games for Week {week} have started; loading the next NFL week."
+        )
+        next_soup = get_webpage(next_url)
+        if not next_soup:
+            break
+
+        url = next_url
+        soup = next_soup
+        visited_urls.add(url)
+
+    if _all_games_started(data, now=now):
+        msg = (
+            f"All games for Week {week} have started, and no future NFL week "
+            "could be loaded. Aborting before the workbook update."
+        )
+        logging.error(msg)
+        send_error_email(
+            subject="NFL Scraper Error: No Future Week Available",
+            body=msg,
+            log_path=log_file
+        )
+        return None, week
 
     if not data:
         logging.error("No game data found.")
@@ -641,6 +779,8 @@ def main():
     logging.info("Starting NFL pool automation...")
 
     try:
+        ensure_current_year_workbook()
+
         # ✅ Scrape and normalize
         df_raw, week_label = scrape_nfl_data()
 
