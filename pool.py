@@ -41,6 +41,7 @@ DRY_RUN = False
 
 # The workbook template uses row 1 for headers; game data begins on row 2.
 WORKBOOK_HEADER_ROWS = 1
+WORKBOOK_MAX_GAMES = 16
 
 NFL_URL = "https://www.scoresandodds.com/nfl"
 MAX_AUTO_WEEK_ADVANCES = 4
@@ -616,9 +617,13 @@ def update_excel(wk_number, df_filtered, dotw):
         wb.active = new_wk_sheet
         new_wk_sheet.views.sheetView[0].tabSelected = True
 
-        # Defensive check for Excel_Row
-        if "Excel_Row" not in df_filtered.columns:
-            msg = "Excel_Row column missing from DataFrame. Aborting Excel update."
+        # Reconcile every current matchup with the row already stored in the
+        # workbook. The source page can reorder completed games, so its current
+        # display position is not a stable row identity across repeated runs.
+        try:
+            stable_rows = align_excel_rows_to_worksheet(df_filtered, new_wk_sheet)
+        except ValueError as exc:
+            msg = f"Stable workbook row alignment failed: {exc}"
             logging.critical(msg)
             send_error_email(
                 subject="NFL Excel Update Critical Error",
@@ -627,9 +632,14 @@ def update_excel(wk_number, df_filtered, dotw):
             )
             return
 
+        df_filtered = df_filtered.copy()
+        df_filtered["Excel_Row"] = stable_rows
+
         dotw = dotw.strip().title()
-        locked_game_days = [dotw]
-        logging.info(f"Locked game days for today ({dotw}): {locked_game_days}")
+        logging.info(
+            f"Updating future games for {dotw}; games whose kickoff has passed "
+            "were filtered before workbook alignment."
+        )
 
         df = df_filtered.copy()
         df = df[df["Excel_Row"].notna()]
@@ -645,19 +655,21 @@ def update_excel(wk_number, df_filtered, dotw):
         mnf_rows = monday_games["Excel_Row"].tolist()
         night_rows = set(snf_rows + mnf_rows)
 
-        # Filter out locked rows before clearing
-        df_unlocked = df[~df["game_day"].isin(locked_game_days)]
-        rows_to_update = df_unlocked["Excel_Row"].unique()
+        # filter_games_by_day already removed games whose kickoff has passed.
+        # Do not lock the entire current weekday: a Thursday evening game may
+        # still need a Thursday morning line update.
+        rows_to_update = df["Excel_Row"].unique()
 
         # Clear all rows that will be updated
         for row in rows_to_update:
             logging.info(f"Clearing row {row}")
-            for col in [3, 4, 5, 9, 11, 14, 15]:
+            for col in [3, 4, 5, 9, 11]:
                 new_wk_sheet.cell(row=row, column=col).value = None
+            for col in [3, 5, 14, 15]:
                 new_wk_sheet.cell(row=row, column=col).fill = clear_fill
 
         # Update each row with FAVORITE vs UNDERDOG
-        for _, row in df_unlocked.iterrows():
+        for _, row in df.iterrows():
             try:
                 excel_row = int(row["Excel_Row"])
                 game_day = row["game_day"]
@@ -767,6 +779,101 @@ def assign_excel_rows(df, header_rows=WORKBOOK_HEADER_ROWS):
         dtype="int64",
         name="Excel_Row",
     )
+
+
+def matchup_key(team1_abbr, team2_abbr):
+    """Return an order-independent identity for one NFL matchup."""
+    abbreviations = []
+    for value in (team1_abbr, team2_abbr):
+        if value is None or pd.isna(value):
+            raise ValueError("Matchup identity requires two team abbreviations")
+        abbreviation = str(value).strip().upper()
+        if not abbreviation:
+            raise ValueError("Matchup identity requires two team abbreviations")
+        abbreviations.append(abbreviation)
+
+    if abbreviations[0] == abbreviations[1]:
+        raise ValueError("A matchup cannot contain the same team twice")
+    return tuple(sorted(abbreviations))
+
+
+def existing_matchup_rows(
+    worksheet,
+    header_rows=WORKBOOK_HEADER_ROWS,
+    max_games=WORKBOOK_MAX_GAMES,
+):
+    """Read the stable matchup-to-row mapping already stored in a week sheet."""
+    first_game_row = header_rows + 1
+    rows = {}
+    for excel_row in range(first_game_row, first_game_row + max_games):
+        team1_abbr = worksheet.cell(row=excel_row, column=9).value
+        team2_abbr = worksheet.cell(row=excel_row, column=11).value
+        if team1_abbr in (None, "") and team2_abbr in (None, ""):
+            continue
+        if team1_abbr in (None, "") or team2_abbr in (None, ""):
+            raise ValueError(
+                f"Workbook row {excel_row} has an incomplete matchup identity"
+            )
+
+        key = matchup_key(team1_abbr, team2_abbr)
+        if key in rows:
+            raise ValueError(
+                f"Workbook contains duplicate matchup {key[0]} vs {key[1]} "
+                f"in rows {rows[key]} and {excel_row}"
+            )
+        rows[key] = excel_row
+    return rows
+
+
+def align_excel_rows_to_worksheet(
+    df,
+    worksheet,
+    header_rows=WORKBOOK_HEADER_ROWS,
+    max_games=WORKBOOK_MAX_GAMES,
+):
+    """Map current games to their existing rows, independent of page order."""
+    required = {"Team1_Abbr", "Team2_Abbr"}
+    missing = sorted(required.difference(df.columns))
+    if missing:
+        raise ValueError(
+            "Matchup row alignment requires columns: " + ", ".join(missing)
+        )
+
+    existing = existing_matchup_rows(
+        worksheet,
+        header_rows=header_rows,
+        max_games=max_games,
+    )
+    first_game_row = header_rows + 1
+    available_rows = [
+        row
+        for row in range(first_game_row, first_game_row + max_games)
+        if row not in existing.values()
+    ]
+
+    keys = [
+        matchup_key(row["Team1_Abbr"], row["Team2_Abbr"])
+        for _, row in df.iterrows()
+    ]
+    duplicate_keys = sorted({key for key in keys if keys.count(key) > 1})
+    if duplicate_keys:
+        duplicates = ", ".join(f"{left} vs {right}" for left, right in duplicate_keys)
+        raise ValueError(f"Current schedule contains duplicate matchups: {duplicates}")
+
+    assignments = []
+    reserved = dict(existing)
+    for key in keys:
+        if key not in reserved:
+            if not available_rows:
+                raise ValueError(
+                    f"No workbook row is available for matchup {key[0]} vs {key[1]}"
+                )
+            reserved[key] = available_rows.pop(0)
+        assignments.append(reserved[key])
+
+    if len(assignments) != len(set(assignments)):
+        raise ValueError("Multiple current matchups resolved to the same workbook row")
+    return pd.Series(assignments, index=df.index, dtype="int64", name="Excel_Row")
 
 
 def prepare_schedule_for_excel(df, now=None, header_rows=WORKBOOK_HEADER_ROWS):
