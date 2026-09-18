@@ -42,7 +42,10 @@ pandas normalization and validation
 Stable Excel-row assignment on the complete schedule
           |
           v
-Started-game filtering and current-day locking
+Started-game filtering by kickoff timestamp
+          |
+          v
+Reconcile matchup identities with existing worksheet rows
           |
           v
 openpyxl weekly-sheet update and workbook save
@@ -71,26 +74,22 @@ openpyxl weekly-sheet update and workbook save
 
 ## Stable Excel-row rule
 
-The workbook template reserves row 1 for headers, so game data begins on row 2. Excel rows are assigned from the complete scraped schedule in its existing order:
+The workbook template reserves row 1 for headers, so game data begins on row 2. Schedule preparation first assigns provisional rows from the complete schedule before filtering started games.
 
-```text
-Excel_Row = complete-schedule position + 2
-```
-
-Row assignment happens before games that have already started are filtered out. Consequently, removing an earlier game does not renumber later matchups, and the same matchup retains its `Excel_Row` across repeated runs as long as the complete source schedule and its order remain consistent.
+Before writing, `align_excel_rows_to_worksheet()` reconciles each remaining game with the existing worksheet using an order-independent pair of normalized team abbreviations. Existing matchups keep their rows even if the source reorders games or reverses favorite/underdog order. New matchups use available rows; existing identities remain reserved. Duplicate or incomplete identities, duplicate current matchups, and insufficient space cause alignment to fail before the update writes game rows.
 
 The assignment function validates every kickoff timestamp and returns a new indexed series. Schedule preparation and filtering operate on DataFrame copies so the caller is not unexpectedly given an `Excel_Row` column or converted timestamp column.
 
 ## Current locking behavior
 
-Locking is based on the Pacific calendar day when the script runs:
+Updates are filtered by each game's timezone-aware kickoff timestamp:
 
 1. Games whose kickoff is at or before the current time are removed from the update DataFrame.
-2. Rows are assigned before that filtering, preserving their original workbook positions.
-3. During the workbook update, every remaining game whose Pacific `game_day` equals the current Pacific weekday is excluded from clearing and writing.
-4. Remaining games on other days are eligible for updates.
+2. Remaining games are aligned to existing worksheet matchup rows before clearing and writing.
+3. Games that have not started remain eligible, including games later on the current day.
+4. Existing rows for started games are left untouched by the game-update path. Participant entry values in columns N/O are preserved while applicable highlighting may change.
 
-This is a whole-day update lock, not a per-game kickoff lock inside the Excel-writing function. For example, a Saturday run locks remaining Saturday games but does not lock Sunday games merely because the run occurs on Saturday.
+For example, a Thursday-morning run preserves a completed Wednesday game's row but can update Thursday evening's game. Friday and Saturday runs preserve Wednesday and Thursday games whose kickoff has passed. This is not a whole-day lock; callers using the Excel-writing function directly must first apply the normal filtering pipeline.
 
 ## Installation
 
@@ -148,11 +147,7 @@ Run the complete suite from the repository root:
 python -m pytest -q
 ```
 
-Current verified result:
-
-```text
-42 passed
-```
+The GitHub Actions [Tests workflow](.github/workflows/tests.yml) also runs the suite. Consult its latest run for the current test count and result.
 
 The suite uses saved HTML fixtures and tracked test-workbook data. It covers HTML structure, automatic advancement from an expired slate to the next NFL week, week and datetime parsing, official and malformed team-name mapping, Friday/Thanksgiving/Saturday schedules, deterministic Excel rows, simulated runs at different times, invalid timestamps, caller DataFrame preservation, yearly workbook creation without overwriting existing data, `.env` path updates, and the production connections.
 
@@ -169,6 +164,7 @@ The tests do not exercise every operational workflow. In particular, they do not
 |-- Family Football Pool Template.xlsx # Sanitized example workbook template
 `-- tests/
     |-- test_excel_row_assignment.py # Stable-row and filtering tests
+    |-- test_stable_workbook_rows.py # Existing matchup identity and started-game protection
     |-- test_edge_cases.py           # Schedule, mapping, and tracked-data tests
     |-- test_html_structure.py       # Fixture parser-contract tests
     |-- generate_test_schedule.py    # Legacy test-data generator
@@ -180,15 +176,15 @@ The tests do not exercise every operational workflow. In particular, they do not
 ## Known limitations and operational cautions
 
 - The scraper depends on the source site's current HTML structure. Markup changes can break parsing or silently reduce the games returned.
-- Stable row identity depends on receiving the complete schedule in a consistent order. A missing or reordered source game can change positional mapping.
+- Existing row identity depends on valid, unique team-abbreviation pairs already stored in the worksheet. The tool rejects ambiguous mappings; it does not automatically repair historical workbook corruption.
 - Workbook writes are neither atomic nor transactional. A failure during save can leave the workbook unavailable or damaged; keep backups and use a disposable copy for initial validation.
 - The workbook update logic assumes a fixed sheet and column layout. It is not a general Excel schema mapper.
-- Current-day locking is day-level. It does not implement a configurable lead time or a separate lock policy for tomorrow's games.
+- Started-game protection uses kickoff time, not a configurable lead time or a whole-day lock.
 - There is no functional dry-run mode.
 - `archive_log_file()` exists but is not called by the production flow, so automatic log archiving is not active.
 - The application does not create automatic workbook backups.
 - Live website, SMTP, and production-workbook integration are not covered by the local test suite.
-- No CI workflow is currently included; test execution is local.
+- CI uses isolated tests and fixtures, not live website, email, or production-workbook checks.
 
 ## Privacy and security
 
