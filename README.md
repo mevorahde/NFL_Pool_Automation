@@ -202,3 +202,7 @@ This project relies on HTML made available by a third-party sports information s
 ## Origin
 
 The project began as automation for a personal family football pool and evolved into a practical exercise in reliable data ingestion, deterministic spreadsheet updates, and regression testing around real NFL scheduling edge cases.
+
+## License
+
+The original software and documentation in this repository are available under the [MIT License](LICENSE). Third-party source-site content, trademarks, and tracked factual data remain the property of their respective owners.
